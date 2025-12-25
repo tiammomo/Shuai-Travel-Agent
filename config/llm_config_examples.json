@@ -1,0 +1,72 @@
+{
+  "_comment": "LLM多协议配置示例",
+  
+  "openai_official": {
+    "provider_type": "openai",
+    "api_base": "https://api.openai.com/v1",
+    "api_key": "sk-YOUR_OPENAI_API_KEY",
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30,
+    "max_retries": 3,
+    "top_p": 1.0,
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0
+  },
+  
+  "anthropic_claude": {
+    "provider_type": "anthropic",
+    "api_base": "https://api.anthropic.com/v1",
+    "api_key": "sk-ant-YOUR_ANTHROPIC_API_KEY",
+    "model": "claude-3-sonnet-20240229",
+    "api_version": "2023-06-01",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30,
+    "max_retries": 3
+  },
+  
+  "google_gemini": {
+    "provider_type": "google",
+    "api_base": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "api_key": "YOUR_GOOGLE_API_KEY",
+    "model": "gemini-1.5-pro",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30,
+    "max_retries": 3,
+    "top_p": 1.0
+  },
+  
+  "ollama_local": {
+    "provider_type": "openai-compatible",
+    "api_base": "http://localhost:11434/v1",
+    "api_key": "",
+    "model": "llama2:latest",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 60,
+    "max_retries": 2
+  },
+  
+  "lm_studio_local": {
+    "provider_type": "openai-compatible",
+    "api_base": "http://localhost:1234/v1",
+    "api_key": "",
+    "model": "local-model",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 60,
+    "max_retries": 2
+  },
+  
+  "backward_compatible_no_provider_type": {
+    "_comment": "向后兼容：未指定provider_type时默认使用OpenAI",
+    "api_base": "https://api.openai.com/v1",
+    "api_key": "YOUR_API_KEY",
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "max_tokens": 2000
+  }
+}

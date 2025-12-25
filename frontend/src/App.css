@@ -1,0 +1,129 @@
+.ant-layout {
+  min-height: 100vh;
+}
+
+.chat-message {
+  padding: 12px 16px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.chat-message.user {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.chat-message.assistant {
+  background: #f0f2f6;
+  color: #262730;
+}
+
+.chat-message-content {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 段落间距优化 - 极致紧凑 */
+.chat-message-content p {
+  margin: 0;
+  padding: 0;
+}
+
+.chat-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* 空段落处理 - 完全消除空行 */
+.chat-message-content p:empty {
+  display: none;
+}
+
+/* 列表样式优化 */
+.chat-message-content ul,
+.chat-message-content ol {
+  margin: 2px 0;
+  padding-left: 20px;
+}
+
+.chat-message-content li {
+  margin: 0;
+  line-height: 1.4;
+  padding: 0;
+}
+
+/* 标题间距优化 */
+.chat-message-content h1,
+.chat-message-content h2,
+.chat-message-content h3 {
+  margin: 4px 0 2px 0;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.chat-message-content h1:first-child,
+.chat-message-content h2:first-child,
+.chat-message-content h3:first-child {
+  margin-top: 0;
+}
+
+/* 代码块样式 */
+.chat-message-content code {
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.chat-message.user .chat-message-content code {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* 引用块样式 */
+.chat-message-content blockquote {
+  margin: 4px 0;
+  padding: 6px 12px;
+  border-left: 3px solid rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.chat-message.user blockquote {
+  border-left-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 强制移除连续空行 */
+.chat-message-content br + br {
+  display: none;
+}
+
+/* 预格式化文本 */
+.chat-message-content pre {
+  margin: 6px 0;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.chat-message.user pre {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.chat-message-time {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-top: 4px;
+}
+
+.thinking-indicator {
+  display: inline-block;
+  animation: blink 1.4s infinite both;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}

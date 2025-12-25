@@ -122,6 +122,13 @@ if 'current_session_id' not in st.session_state:
 if 'session_page' not in st.session_state:
     st.session_state.session_page = 0
 
+# 流式输出控制状态
+if 'is_streaming' not in st.session_state:
+    st.session_state.is_streaming = False
+
+if 'stop_streaming' not in st.session_state:
+    st.session_state.stop_streaming = False
+
 # 自动创建首个会话
 if 'auto_created' not in st.session_state:
     st.session_state.auto_created = False
@@ -437,113 +444,134 @@ if 'trigger_delete' in st.session_state and st.session_state.trigger_delete:
 
 # 输入框
 st.markdown("---")
-user_input = st.chat_input("输入你的旅游需求...")
+
+# 如果正在流式输出，显示停止按钮
+if st.session_state.is_streaming:
+    col_input, col_stop = st.columns([5, 1])
+    with col_input:
+        st.chat_input("正在生成回答中...", disabled=True)
+    with col_stop:
+        if st.button("🛑 停止", key="stop_btn", use_container_width=True):
+            st.session_state.stop_streaming = True
+            st.session_state.is_streaming = False
+else:
+    user_input = st.chat_input("输入你的旅游需求...")
 
 if user_input:
-    # ========== 聊天交互区域 (局部刷新) ==========
-    @st.fragment
-    def chat_interaction_section():
-        """
-        聊天交互区域（局部刷新）
-        
-        功能：
-        - 检查会话是否存在
-        - 添加用户消息到消息历史
-        - 调用后端API获取AI回复
-        - 处理SSE流式输出，实时显示AI的应答
-        - 管理消息整体化
-        
-        注：
-        - 使用占位符st.empty()提前AI回复位置
-        - 实时更新占位符中的内容，实现流式效果
-        - 当前fragment仅刷新此区域，提升用户体验
-        """
-        # 检查是否有会话 ID
-        if not st.session_state.current_session_id:
-            st.warning("⚠️ 请先点击左侧侧边栏的'➕ 新建会话'开始对话")
-            st.stop()
-        
-        # 立即添加用户消息到消息历史
-        user_timestamp = datetime.now().strftime("%H:%M")
-        st.session_state.messages.append({
-            "role": "user",
-            "content": user_input,
-            "timestamp": user_timestamp
-        })
-        
-        # 立即显示用户消息
-        st.markdown(render_message("user", user_input, user_timestamp), unsafe_allow_html=True)
-        
-        # 创建为AI回复的占位符
-        assistant_placeholder = st.empty()
-        assistant_message = ""
-        assistant_timestamp = datetime.now().strftime("%H:%M")
-        
-        try:
-            # 发起SSE流式请求
-            response = requests.post(
-                f"{st.session_state.api_base}/api/chat/stream",
-                json={
-                    "message": user_input,
-                    "session_id": st.session_state.current_session_id
-                },
-                stream=True,
-                timeout=120
-            )
-            
-            if response.status_code == 200:
-                # 逐块读取SSE数据
-                for line in response.iter_lines(decode_unicode=True):
-                    if line.startswith('data: '):
-                        data_str = line[6:]
-                        
-                        try:
-                            chunk_data = json.loads(data_str)
-                            
-                            # 接收session_id
-                            if 'session_id' in chunk_data:
-                                continue
-                            
-                            # 处理文本块 - 实时更新
-                            if 'chunk' in chunk_data:
-                                assistant_message += chunk_data['chunk']
-                                # 使用占位符实时更新AI回复
-                                assistant_placeholder.markdown(
-                                    render_message("assistant", assistant_message, assistant_timestamp),
-                                    unsafe_allow_html=True
-                                )
-                            
-                            # 处理错误
-                            elif 'error' in chunk_data:
-                                assistant_message = f"抱歉，处理出错：{chunk_data['error']}"
-                                break
-                            
-                            # 处理结束信号
-                            elif chunk_data.get('done'):
-                                break
-                        
-                        except json.JSONDecodeError:
-                            continue
-            else:
-                assistant_message = f"请求失败：HTTP {response.status_code}"
-        
-        except requests.exceptions.Timeout:
-            assistant_message = "请求超时，请稍后重试"
-        except Exception as e:
-            assistant_message = f"网络错误：{str(e)}"
-        
-        # 如果没有内容，显示错误信息
-        if not assistant_message:
-            assistant_message = "未收到回复"
-        
-        # 添加助手回复到消息历史
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": assistant_message,
-            "timestamp": assistant_timestamp
-        })
-        
-        # 不再调用st.rerun()，保持当前状态
-        # 用户下次输入或页面交互时自然刷新即可
+    # 检查是否有会话 ID
+    if not st.session_state.current_session_id:
+        st.warning("⚠️ 请先点击左侧侧边栏的'➕ 新建会话'开始对话")
+        st.stop()
     
-    chat_interaction_section()
+    # ==== 第1步：立即显示用户消息（无感刷新） ====
+    user_timestamp = datetime.now().strftime("%H:%M")
+    st.session_state.messages.append({
+        "role": "user",
+        "content": user_input,
+        "timestamp": user_timestamp
+    })
+    
+    # 立即刷新消息显示区，显示用户消息
+    st.rerun()
+
+# ==== 第2步：显示“正在思考...”并处理AI流式响应 ====
+# 检查是否需要获取AI回复（最后一条消息是用户消息）
+if (len(st.session_state.messages) > 0 and 
+    st.session_state.messages[-1]["role"] == "user" and
+    not st.session_state.is_streaming):
+    
+    # 设置流式状态
+    st.session_state.is_streaming = True
+    st.session_state.stop_streaming = False
+    
+    # 创建为 AI 回复的占位符
+    assistant_placeholder = st.empty()
+    assistant_message = "🤔 正在思考中..."
+    assistant_timestamp = datetime.now().strftime("%H:%M")
+    
+    # 显示初始思考状态
+    assistant_placeholder.markdown(
+        render_message("assistant", assistant_message, assistant_timestamp),
+        unsafe_allow_html=True
+    )
+    
+    # 获取用户输入（最后一条用户消息）
+    user_message_content = st.session_state.messages[-1]["content"]
+    
+    try:
+        # 发起 SSE 流式请求
+        response = requests.post(
+            f"{st.session_state.api_base}/api/chat/stream",
+            json={
+                "message": user_message_content,
+                "session_id": st.session_state.current_session_id
+            },
+            stream=True,
+            timeout=120
+        )
+        
+        if response.status_code == 200:
+            assistant_message = ""  # 清空思考状态，开始显示AI回答
+            
+            # 逐块读取 SSE 数据
+            for line in response.iter_lines(decode_unicode=True):
+                # 检查停止信号
+                if st.session_state.stop_streaming:
+                    assistant_message += "\n\n⚠️ 已停止生成"
+                    break
+                
+                if line.startswith('data: '):
+                    data_str = line[6:]
+                    
+                    try:
+                        chunk_data = json.loads(data_str)
+                        
+                        # 接收 session_id
+                        if 'session_id' in chunk_data:
+                            continue
+                        
+                        # 处理文本块 - 实时更新
+                        if 'chunk' in chunk_data:
+                            assistant_message += chunk_data['chunk']
+                            # 使用占位符实时更新 AI 回复
+                            assistant_placeholder.markdown(
+                                render_message("assistant", assistant_message, assistant_timestamp),
+                                unsafe_allow_html=True
+                            )
+                        
+                        # 处理错误
+                        elif 'error' in chunk_data:
+                            assistant_message = f"抱歉，处理出错：{chunk_data['error']}"
+                            break
+                        
+                        # 处理结束信号
+                        elif chunk_data.get('done'):
+                            break
+                    
+                    except json.JSONDecodeError:
+                        continue
+        else:
+            assistant_message = f"请求失败：HTTP {response.status_code}"
+    
+    except requests.exceptions.Timeout:
+        assistant_message = "请求超时，请稍后重试"
+    except Exception as e:
+        assistant_message = f"网络错误：{str(e)}"
+    
+    # 如果没有内容，显示错误信息
+    if not assistant_message:
+        assistant_message = "未收到回复"
+    
+    # 添加助手回复到消息历史
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": assistant_message,
+        "timestamp": assistant_timestamp
+    })
+    
+    # 重置流式状态
+    st.session_state.is_streaming = False
+    st.session_state.stop_streaming = False
+    
+    # 刷新页面，显示完整的对话历史
+    st.rerun()

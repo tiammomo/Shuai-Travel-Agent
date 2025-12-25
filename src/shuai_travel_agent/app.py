@@ -11,6 +11,7 @@ FastAPI Web服务模块
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -28,6 +29,15 @@ app = FastAPI(
     title="旅游助手API",
     description="基于单智能体的旅游推荐系统",
     version="1.0.0"
+)
+
+# 配置CORS，允许前端跨域访问
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # React开发服务器地址
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许所有HTTP方法
+    allow_headers=["*"],  # 允许所有请求头
 )
 
 # 全局会话存储：key为session_id，value为会话数据（Agent实例、创建时间、最后活动时间、消息数）
@@ -58,6 +68,11 @@ class SessionInfo(BaseModel):
     created_at: str  # 创建时间
     last_active: str  # 最后活动时间
     message_count: int  # 消息数量
+    name: Optional[str] = None  # 会话名称
+
+class UpdateSessionNameRequest(BaseModel):
+    """更新会话名称请求模型"""
+    name: str  # 新的会话名称
 
 # 会话管理辅助函数
 def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, TravelAgent]:
@@ -77,7 +92,8 @@ def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, Travel
             'agent': TravelAgent(),
             'created_at': datetime.now().isoformat(),
             'last_active': datetime.now().isoformat(),
-            'message_count': 0
+            'message_count': 0,
+            'name': None
         }
     else:
         # 更新最后活动时间
@@ -259,7 +275,8 @@ async def create_new_session():
             'agent': TravelAgent(),
             'created_at': datetime.now().isoformat(),
             'last_active': datetime.now().isoformat(),
-            'message_count': 0
+            'message_count': 0,
+            'name': None
         }
         return {
             "success": True,
@@ -288,7 +305,8 @@ async def list_sessions():
                 "session_id": sid,
                 "created_at": session_data['created_at'],
                 "last_active": session_data['last_active'],
-                "message_count": session_data['message_count']
+                "message_count": session_data['message_count'],
+                "name": session_data.get('name')  # 会话名称
             })
         
         # 按最后活动时间从新到旧排序
@@ -355,6 +373,33 @@ async def clear_conversation(session_id: Optional[str] = None):
             "success": True,
             "message": "对话历史已清空"
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/session/{session_id}/name")
+async def update_session_name(session_id: str, request: UpdateSessionNameRequest):
+    """
+    更新会话名称
+    
+    Args:
+        session_id: 会话ID
+        request: 更新请求，包含新名称
+        
+    Returns:
+        更新结果
+    """
+    try:
+        if session_id not in sessions:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        
+        sessions[session_id]['name'] = request.name
+        return {
+            "success": True,
+            "message": "会话名称已更新",
+            "name": request.name
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

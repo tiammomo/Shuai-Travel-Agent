@@ -64,3 +64,13 @@ dmypy.json
 # Project specific
 memory_*.json
 session_*.json
+
+# Frontend / Node.js
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
