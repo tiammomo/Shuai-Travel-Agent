@@ -530,10 +530,19 @@ class ReActTravelAgent:
                     if isinstance(result, dict):
                         text_parts.append(f"\n【返回结果】")
                         if 'response' in result:
-                            text_parts.append(f"  {result['response']}")
+                            response = result['response']
+                            # 确保是字符串
+                            if isinstance(response, dict):
+                                text_parts.append(f"  {json.dumps(response, ensure_ascii=False)}")
+                            elif isinstance(response, list):
+                                text_parts.append(f"  {', '.join(str(x) for x in response)}")
+                            else:
+                                text_parts.append(f"  {response}")
                         elif 'cities' in result and result.get('success'):
                             cities = result.get('cities', [])
-                            text_parts.append(f"  推荐城市 ({len(cities)}个)：{', '.join(cities)}")
+                            # cities 是字典列表，需要提取城市名称
+                            city_names = [c.get('city', str(c)) for c in cities]
+                            text_parts.append(f"  推荐城市 ({len(city_names)}个)：{', '.join(city_names)}")
                         elif 'route_plan' in result and result.get('success'):
                             route_days = len(result.get('route_plan', []))
                             text_parts.append(f"  路线规划：{route_days}天行程")
@@ -577,10 +586,19 @@ class ReActTravelAgent:
                 # 优先使用LLM相关工具的响应
                 if action.get('tool_name') in ['generate_city_recommendation', 'generate_route_plan', 'llm_chat']:
                     if result:
-                        return result.get('response') or result.get('content', '')
+                        response = result.get('response') or result.get('content', '')
+                        if response:
+                            # 确保返回字符串
+                            if isinstance(response, dict):
+                                return json.dumps(response, ensure_ascii=False)
+                            return str(response)
 
                 if action_result:
-                    return action_result.get('response') or action_result.get('content', '')
+                    response = action_result.get('response') or action_result.get('content', '')
+                    if response:
+                        if isinstance(response, dict):
+                            return json.dumps(response, ensure_ascii=False)
+                        return str(response)
 
         # 如果没有找到答案，使用LLM生成
         return self._generate_answer(history)

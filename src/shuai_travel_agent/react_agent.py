@@ -561,19 +561,55 @@ class ThoughtEngine:
         days = int(days_match.group(1)) if days_match else 3
 
         # 城市信息提取
-        city_match = re.search(r'(?:去|在|到|城市)(.+?)(?:的?路线|旅游|游玩)?', task)
-        city = city_match.group(1).strip() if city_match else None
-        if not city:
-            city_match = re.search(r'(.+?)的?路线', task)
-            city = city_match.group(1).strip() if city_match else None
+        city = None
+        city_patterns = [
+            r'^(.+?)的?旅游',  # "北京的旅游"
+            r'^(.+?)的?攻略',  # "北京的攻略"
+            r'^(.+?)景点',     # "北京景点"
+            r'去(.+?)旅游',    # "去北京旅游"
+            r'去(.+?)游玩',    # "去北京游玩"
+            r'在(.+?)旅游',    # "在北京旅游"
+            r'到(.+?)旅游',    # "到北京旅游"
+            r'(?:推荐|适合).*?城市[：:]\s*(.+)',
+        ]
+        for pattern in city_patterns:
+            city_match = re.search(pattern, task)
+            if city_match:
+                city = city_match.group(1).strip()
+                # 过滤非城市内容
+                if city and not any(kw in city for kw in ['推荐', '建议', '哪些', '什么']):
+                    break
 
         # 搜索相关工具 - 城市推荐/查询
         recommend_tools = [t for t in tools if 'recommend' in t.name.lower() or 'search' in t.name.lower()]
         if recommend_tools and any(kw in task_lower for kw in ['推荐', '建议', '哪些', '适合']):
+            # 提取实体信息用于工具调用
+            import re
+            days_match = re.search(r'(\d+)\s*天', task)
+            days = int(days_match.group(1)) if days_match else 3
+            budget_match = re.search(r'(\d+)\s*元', task)
+            budget = int(budget_match.group(1)) if budget_match else None
+            season_match = re.search(r'(春夏秋冬)季', task)
+            season = season_match.group(1) if season_match else None
+
+            # 提取兴趣标签
+            interest_keywords = {
+                '历史': ['历史', '古迹', '文物'],
+                '自然': ['自然', '风景', '山水', '公园'],
+                '美食': ['美食', '小吃', '特色菜'],
+                '购物': ['购物', '商场', '免税'],
+                '亲子': ['亲子', '儿童', '小孩'],
+                '海滨': ['海滨', '海滩', '海岛', '沙滩']
+            }
+            interests = []
+            for interest, keywords in interest_keywords.items():
+                if any(kw in task for kw in keywords):
+                    interests.append(interest)
+
             actions.append(Action(
                 id=f"action_{len(actions)}",
                 tool_name=recommend_tools[0].name,
-                parameters={'user_query': task, 'available_cities': []}
+                parameters={'interests': interests, 'budget_min': budget - 100 if budget else None, 'budget_max': budget + 200 if budget else None, 'season': season}
             ))
 
         # 城市信息工具
@@ -911,7 +947,9 @@ class ReActAgent:
                 if isinstance(result, dict):
                     if result.get('success') and 'cities' in result:
                         cities = result.get('cities', [])
-                        result_info = f"获取到 {len(cities)} 个推荐城市：{', '.join(cities[:5])}"
+                        # cities 是字典列表，需要提取城市名称
+                        city_names = [c.get('city', str(c)) for c in cities[:5]]
+                        result_info = f"获取到 {len(cities)} 个推荐城市：{', '.join(city_names)}"
                     elif result.get('success') and 'route_plan' in result:
                         route_days = len(result.get('route_plan', []))
                         result_info = f"路线规划完成，共 {route_days} 天行程"
