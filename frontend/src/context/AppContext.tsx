@@ -155,10 +155,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await apiService.getSessions();
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
+      // 去重：使用 Map 确保 session_id 唯一，保留最后出现的
+      const uniqueSessionsMap = new Map(data.sessions.map(s => [s.session_id, s]));
+      const uniqueSessions = Array.from(uniqueSessionsMap.values());
+
       if (includeEmpty) {
-        setSessions(data.sessions);
+        setSessions(uniqueSessions);
       } else {
-        const activeSessions = data.sessions.filter(s =>
+        const activeSessions = uniqueSessions.filter(s =>
           s.message_count > 0 ||
           new Date(s.last_active) > oneHourAgo
         );
