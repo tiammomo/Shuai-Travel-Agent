@@ -103,9 +103,9 @@ const Sidebar: React.FC = () => {
   const handleHealthCheck = async () => {
     try {
       const data = await apiService.checkHealth();
-      antMessage.success(`✅ 连接成功\n\nAgent: ${data.agent}\n版本: ${data.version}`);
+      antMessage.success(`连接成功\n\nAgent: ${data.agent}\n版本: ${data.version}`);
     } catch (error) {
-      antMessage.error('❌ 无法连接到服务器');
+      antMessage.error('无法连接到服务器');
     }
   };
 
