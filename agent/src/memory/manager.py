@@ -1,5 +1,42 @@
 """
 记忆/状态管理模块 (Memory Manager)
+
+本模块提供Agent的记忆管理功能，包括短期工作记忆和长期记忆的存储与检索。
+采用双层记忆架构：工作记忆用于当前会话，长期记忆用于历史会话存档。
+
+主要组件:
+- Message: 对话消息数据类
+- UserPreference: 用户偏好数据类
+- MemoryManager: 记忆管理器核心类
+
+功能特点:
+- 工作记忆：限制长度的对话历史
+- 长期记忆：历史会话存档和检索
+- 用户偏好提取：从对话中自动提取用户偏好
+- 会话存档：自动归档完成的会话
+- 文件持久化：支持保存和加载记忆数据
+
+使用示例:
+    from memory.manager import MemoryManager
+
+    # 创建记忆管理器
+    memory = MemoryManager(max_working_memory=10, max_long_term_memory=50)
+
+    # 添加对话消息
+    memory.add_message('user', '我想去北京旅游')
+    memory.add_message('assistant', '北京有很多历史文化景点')
+
+    # 获取对话历史
+    history = memory.get_conversation_history()
+
+    # 获取用户偏好
+    preferences = memory.get_user_preference()
+
+    # 存档当前会话
+    memory.archive_current_session()
+
+    # 保存到文件
+    memory.save_to_file('memory.json')
 """
 
 import json
@@ -10,7 +47,16 @@ from collections import deque
 
 
 class Message:
-    """对话消息"""
+    """
+    对话消息数据类
+
+    表示一条对话消息，包含角色、内容和时间戳。
+
+    属性:
+        role: str 消息角色，'user'或'assistant'
+        content: str 消息内容
+        timestamp: str 时间戳，ISO格式
+    """
 
     def __init__(self, role: str, content: str, timestamp: Optional[str] = None):
         self.role = role
@@ -18,6 +64,7 @@ class Message:
         self.timestamp = timestamp or datetime.now().isoformat()
 
     def to_dict(self) -> Dict[str, str]:
+        """转换为字典"""
         return {
             "role": self.role,
             "content": self.content,
@@ -26,11 +73,29 @@ class Message:
 
     @classmethod
     def from_dict(cls, data: Dict[str, str]) -> 'Message':
+        """从字典创建Message实例"""
         return cls(data['role'], data['content'], data.get('timestamp'))
 
 
 class UserPreference:
-    """用户偏好"""
+    """
+    用户偏好数据类
+
+    存储用户的旅行偏好信息，支持从对话文本中自动提取偏好。
+
+    提取的偏好类型:
+        - budget_range: 预算范围 (min, max)
+        - travel_days: 旅行天数
+        - interest_tags: 兴趣标签列表
+        - preferred_cities: 偏好城市列表
+        - season_preference: 季节偏好
+        - travel_companions: 旅行同伴
+
+    提取规则:
+        - 预算: 识别"元"、"块"和数字
+        - 天数: 识别"X天"模式
+        - 兴趣: 识别关键词映射到标准标签
+    """
 
     def __init__(self):
         self.budget_range: Optional[tuple] = None
@@ -41,6 +106,7 @@ class UserPreference:
         self.travel_companions: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
         return {
             "budget_range": self.budget_range,
             "travel_days": self.travel_days,
@@ -51,6 +117,7 @@ class UserPreference:
         }
 
     def from_dict(self, data: Dict[str, Any]) -> None:
+        """从字典加载偏好"""
         self.budget_range = tuple(data['budget_range']) if data.get('budget_range') else None
         self.travel_days = data.get('travel_days')
         self.interest_tags = data.get('interest_tags', [])
@@ -59,8 +126,17 @@ class UserPreference:
         self.travel_companions = data.get('travel_companions')
 
     def update_from_text(self, text: str) -> None:
+        """
+        从文本中提取用户偏好
+
+        扫描文本内容，提取旅行相关的偏好信息并更新。
+
+        Args:
+            text: str 用户输入文本
+        """
         text_lower = text.lower()
 
+        # 提取预算
         if '预算' in text or '元' in text or '块' in text:
             import re
             numbers = re.findall(r'\d+', text)
@@ -71,12 +147,14 @@ class UserPreference:
                 elif len(nums) == 1:
                     self.budget_range = (0, nums[0])
 
+        # 提取天数
         if '天' in text:
             import re
             match = re.search(r'(\d+)\s*天', text)
             if match:
                 self.travel_days = int(match.group(1))
 
+        # 提取兴趣标签
         interest_keywords = {
             '历史': '历史文化',
             '文化': '历史文化',
@@ -94,16 +172,47 @@ class UserPreference:
 
 
 class MemoryManager:
-    """记忆管理器"""
+    """
+    记忆管理器核心类
+
+    负责管理Agent的工作记忆和长期记忆，实现对话历史的存储、
+    用户偏好的提取、会话的存档和检索等功能。
+
+    记忆层次结构:
+    1. 工作记忆 (Working Memory)
+       - conversation_history: 对话历史（固定长度deque）
+       - user_preference: 用户偏好（自动从对话提取）
+       - session_state: 会话状态（当前会话的上下文）
+
+    2. 长期记忆 (Long-term Memory)
+       - long_term_memory: 已存档的会话列表
+       - 支持持久化到文件
+
+    工作流程:
+    1. 收到消息后添加到对话历史
+    2. 如果是用户消息，自动提取偏好
+    3. 对话历史超过限制时自动淘汰旧消息
+    4. 存档时保存完整会话信息
+    """
 
     def __init__(self, max_working_memory: int = 10, max_long_term_memory: int = 50):
+        """
+        初始化记忆管理器
+
+        Args:
+            max_working_memory: int 工作记忆最大消息数
+            max_long_term_memory: int 长期记忆最大存档数
+        """
         self.max_working_memory = max_working_memory
         self.max_long_term_memory = max_long_term_memory
 
+        # 工作记忆：对话历史（固定长度deque）
         self.conversation_history: deque = deque(maxlen=max_working_memory)
 
+        # 用户偏好
         self.user_preference = UserPreference()
 
+        # 会话状态
         self.session_state: Dict[str, Any] = {
             "session_id": f"session_{int(time.time())}",
             "start_time": datetime.now().isoformat(),
@@ -112,32 +221,84 @@ class MemoryManager:
             "current_plan": None
         }
 
+        # 长期记忆：已存档的会话列表
         self.long_term_memory: List[Dict[str, Any]] = []
 
     def add_message(self, role: str, content: str) -> None:
+        """
+        添加对话消息
+
+        Args:
+            role: str 消息角色，'user'或'assistant'
+            content: str 消息内容
+        """
         message = Message(role, content)
         self.conversation_history.append(message)
 
+        # 如果是用户消息，自动提取偏好
         if role == 'user':
             self.user_preference.update_from_text(content)
 
     def get_conversation_history(self, limit: Optional[int] = None) -> List[Dict[str, str]]:
+        """
+        获取对话历史
+
+        Args:
+            limit: int 可选，返回最近N条消息
+
+        Returns:
+            List[Dict]: 消息列表
+        """
         history = list(self.conversation_history)
         if limit:
             history = history[-limit:]
         return [msg.to_dict() for msg in history]
 
     def get_messages_for_llm(self, limit: Optional[int] = None) -> List[Dict[str, str]]:
+        """
+        获取发送给LLM的消息格式
+
+        转换为LLM API所需的格式（仅role和content）。
+
+        Args:
+            limit: int 可选，返回最近N条消息
+
+        Returns:
+            List[Dict]: 消息列表 [{'role': '...', 'content': '...'}]
+        """
         history = self.get_conversation_history(limit)
         return [{"role": msg['role'], "content": msg['content']} for msg in history]
 
     def update_session_state(self, key: str, value: Any) -> None:
+        """
+        更新会话状态
+
+        Args:
+            key: str 状态键
+            value: Any 状态值
+        """
         self.session_state[key] = value
 
     def get_session_state(self, key: str, default: Any = None) -> Any:
+        """
+        获取会话状态
+
+        Args:
+            key: str 状态键
+            default: Any 默认值
+
+        Returns:
+            Any: 状态值
+        """
         return self.session_state.get(key, default)
 
     def clear_conversation(self, archive: bool = True) -> None:
+        """
+        清除对话历史
+
+        Args:
+            archive: bool 是否先存档当前会话
+        """
         if archive:
             self._archive_session()
 
@@ -146,6 +307,7 @@ class MemoryManager:
         self.session_state['start_time'] = datetime.now().isoformat()
 
     def _archive_session(self) -> None:
+        """归档当前会话到长期记忆"""
         messages = self.get_conversation_history()
         session_state = self.session_state.copy()
         user_preference = self.user_preference.to_dict()
@@ -169,10 +331,21 @@ class MemoryManager:
 
         self.long_term_memory.append(archive_record)
 
+        # 限制长期记忆大小
         while len(self.long_term_memory) > self.max_long_term_memory:
             self.long_term_memory.pop(0)
 
     def _generate_session_summary(self, messages: List[Dict], session_state: Dict) -> str:
+        """
+        生成会话摘要
+
+        Args:
+            messages: List[Dict] 消息列表
+            session_state: Dict 会话状态
+
+        Returns:
+            str: 会话摘要字符串
+        """
         summary_parts = []
 
         user_messages = [m for m in messages if m.get('role') == 'user']
@@ -192,10 +365,25 @@ class MemoryManager:
         return " | ".join(summary_parts) if summary_parts else "一般对话"
 
     def archive_current_session(self) -> Dict[str, Any]:
+        """
+        归档当前会话
+
+        Returns:
+            Dict: 归档的会话记录
+        """
         self._archive_session()
         return self.long_term_memory[-1] if self.long_term_memory else {}
 
     def get_archived_sessions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        获取已存档的会话列表
+
+        Args:
+            limit: int 返回的最大数量
+
+        Returns:
+            List[Dict]: 会话摘要列表
+        """
         archives = []
         for record in reversed(self.long_term_memory[-limit:]):
             archives.append({
@@ -208,24 +396,63 @@ class MemoryManager:
         return archives
 
     def get_archive_detail(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取存档会话详情
+
+        Args:
+            session_id: str 会话ID
+
+        Returns:
+            Optional[Dict]: 会话详情，不存在返回None
+        """
         for record in self.long_term_memory:
             if record['session_id'] == session_id:
                 return record
         return None
 
     def get_long_term_memory(self) -> List[Dict[str, Any]]:
+        """
+        获取所有长期记忆
+
+        Returns:
+            List[Dict]: 长期记忆列表
+        """
         return self.long_term_memory
 
     def set_long_term_memory(self, memory: List[Dict[str, Any]]) -> None:
+        """
+        设置长期记忆
+
+        Args:
+            memory: List[Dict] 记忆列表
+        """
         self.long_term_memory = memory[-self.max_long_term_memory:]
 
     def get_user_preference(self) -> Dict[str, Any]:
+        """
+        获取用户偏好
+
+        Returns:
+            Dict: 用户偏好字典
+        """
         return self.user_preference.to_dict()
 
     def set_user_preference(self, preference_data: Dict[str, Any]) -> None:
+        """
+        设置用户偏好
+
+        Args:
+            preference_data: Dict 偏好数据
+        """
         self.user_preference.from_dict(preference_data)
 
     def save_to_file(self, filepath: str) -> None:
+        """
+        保存记忆到文件
+
+        Args:
+            filepath: str 文件路径
+        """
         data = {
             "session_state": self.session_state,
             "conversation_history": self.get_conversation_history(),
@@ -236,6 +463,15 @@ class MemoryManager:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
     def load_from_file(self, filepath: str) -> bool:
+        """
+        从文件加载记忆
+
+        Args:
+            filepath: str 文件路径
+
+        Returns:
+            bool: 是否加载成功
+        """
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -257,6 +493,14 @@ class MemoryManager:
             return False
 
     def get_context_summary(self) -> str:
+        """
+        获取上下文摘要
+
+        用于展示当前用户偏好和会话状态的简洁摘要。
+
+        Returns:
+            str: 格式化的摘要字符串
+        """
         summary_parts = []
 
         pref = self.user_preference

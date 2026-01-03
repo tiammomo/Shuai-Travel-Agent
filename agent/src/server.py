@@ -1,5 +1,26 @@
 """
-gRPC 服务器
+gRPC 服务器模块
+
+本模块提供Agent服务的gRPC服务器实现，支持同步和流式两种消息处理模式。
+采用多线程架构处理并发请求，通过队列机制实现思考过程的实时流式输出。
+
+主要组件:
+- AsyncThoughtStreamer: 异步思考流式输出器（预留）
+- ThoughtStreamer: 同步思考流式输出器，用于实时传递思考过程
+- AgentServicer: Agent服务实现类，处理gRPC请求
+- serve(): 服务器启动函数
+
+功能特点:
+- 真正的token级别流式输出
+- 思考过程实时展示
+- 线程安全的回调机制
+- 自动资源清理，防止内存泄漏
+- 支持120秒超时控制
+
+gRPC服务定义:
+    - ProcessMessage: 同步处理单条消息
+    - StreamMessage: 流式处理消息，实时返回思考和答案
+    - HealthCheck: 健康检查接口
 """
 
 # 添加 agent 根目录到路径，这样可以使用绝对导入
@@ -28,7 +49,26 @@ logger = logging.getLogger(__name__)
 
 
 class AsyncThoughtStreamer:
-    """异步思考流式输出器 - 用于实时传递思考过程（异步版本）"""
+    """
+    异步思考流式输出器 - 用于实时传递思考过程（异步版本）
+
+    预留的异步实现，使用asyncio队列进行线程安全的异步通信。
+    适用于future的异步gRPC场景。
+
+    属性:
+        _queue: asyncio.Queue 异步队列，存储待发送的内容
+        _done: bool 标记流式传输是否完成
+        _answer_started: bool 标记答案是否已开始发送
+
+    方法:
+        put_thought(): 放入思考内容
+        put_answer_chunk(): 放入答案内容块（token级别）
+        put_answer(): 放入完整答案内容
+        put_done(): 标记完成
+        put_error(): 放入错误信息
+        get(): 获取下一个内容块
+        is_done(): 检查是否完成
+    """
 
     def __init__(self):
         self._queue = asyncio.Queue()
@@ -70,7 +110,30 @@ class AsyncThoughtStreamer:
 
 
 class ThoughtStreamer:
-    """思考流式输出器 - 用于实时传递思考过程"""
+    """
+    思考流式输出器 - 用于实时传递思考过程
+
+    使用threading.Queue实现线程安全的同步队列，
+    用于在agent处理线程和gRPC流式输出线程之间传递数据。
+
+    工作流程:
+    1. Agent处理过程中，通过回调函数将思考内容和答案块放入队列
+    2. gRPC流式输出线程从队列中读取数据并发送给客户端
+    3. 处理完成后发送完成信号
+
+    属性:
+        _queue: queue.Queue 线程安全队列
+        _done: bool 标记流式传输是否完成
+
+    方法:
+        put_thought(): 放入思考内容和耗时
+        put_answer_chunk(): 放入答案内容块
+        put_answer(): 放入完整答案
+        put_done(): 标记完成
+        put_error(): 放入错误信息
+        get(): 获取下一个内容块
+        is_done(): 检查是否完成
+    """
 
     def __init__(self):
         self._queue = queue.Queue()
@@ -110,19 +173,55 @@ class ThoughtStreamer:
 
 
 class AgentServicer:
-    """Agent 服务实现"""
+    """
+    Agent gRPC服务实现类
+
+    继承自生成的agent_pb2_grpc.AgentServiceServicer，
+    实现所有gRPC服务方法。
+
+    设计特点:
+    - 单例模式管理线程池，提高资源利用率
+    - 每个请求使用独立的request_id进行追踪和清理
+    - 回调机制实现思考过程的实时流式输出
+    - 线程安全的异步处理架构
+
+    属性:
+        config_path: str 配置文件路径
+        agent: ReActTravelAgent Agent实例
+        _instances: dict 类变量，存储活跃请求的流式器
+        _thread_pool: ThreadPoolExecutor 类变量，共享线程池
+
+    gRPC方法:
+        ProcessMessage(): 同步处理单条消息
+        StreamMessage(): 流式处理消息
+        HealthCheck(): 健康检查
+    """
 
     _instances = {}  # 存储每个请求的流式器
     _thread_pool = None  # 线程池
 
     def __init__(self, config_path: str = "config/llm_config.yaml"):
+        """
+        初始化Agent服务
+
+        Args:
+            config_path: str LLM配置文件路径，默认为"config/llm_config.yaml"
+        """
         self.config_path = config_path
         self.agent = ReActTravelAgent(config_path=config_path)
         logger.info("Agent 服务已初始化")
 
     @classmethod
     def get_thread_pool(cls):
-        """获取线程池，单例模式"""
+        """
+        获取线程池（单例模式）
+
+        使用ThreadPoolExecutor创建线程池，最大10个工作线程。
+        线程名称前缀为"agent_worker"，便于调试和监控。
+
+        Returns:
+            ThreadPoolExecutor: 共享的线程池实例
+        """
         if cls._thread_pool is None:
             cls._thread_pool = futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="agent_worker")
             logger.info("Agent 线程池已初始化")
@@ -130,13 +229,32 @@ class AgentServicer:
 
     @classmethod
     def cleanup_instance(cls, request_id: str):
-        """安全清理实例，防止内存泄漏"""
+        """
+        安全清理实例，防止内存泄漏
+
+        在流式请求完成后调用，清理该请求的流式器实例。
+
+        Args:
+            request_id: str 请求的唯一标识符
+        """
         if request_id in cls._instances:
             del cls._instances[request_id]
             logger.debug(f"[Stream-{request_id}] 实例已清理")
 
     def ProcessMessage(self, request, context):
-        """处理消息（非流式）"""
+        """
+        处理消息（非流式）
+
+        同步处理单条消息，等待完整结果后返回。
+        适用于不需要实时展示思考过程的场景。
+
+        Args:
+            request: MessageRequest gRPC请求消息，包含session_id和user_input
+            context: grpc.ServicerContext gRPC上下文
+
+        Returns:
+            MessageResponse: 包含处理结果的响应消息
+        """
         try:
             result = self.agent.process_sync(request.user_input)
             return self._build_response(result, context)
@@ -147,7 +265,31 @@ class AgentServicer:
             return self._build_error_response(str(e), context)
 
     def StreamMessage(self, request, context) -> Iterator:
-        """处理消息（流式）- 使用线程和队列实现真正流式"""
+        """
+        处理消息（流式）- 使用线程和队列实现真正流式
+
+        核心流式处理方法，通过多线程和队列实现：
+        1. 在独立线程中运行agent处理
+        2. 通过回调函数实时收集思考过程和答案
+        3. 使用队列在线程间传递数据
+        4. 主循环实时读取队列并yield给客户端
+
+        流式输出的内容类型:
+        - thinking_start: 思考开始信号
+        - thinking_chunk: 思考内容块
+        - thinking_end: 思考结束信号
+        - answer_start: 答案开始信号
+        - answer: 答案内容块（token级别）
+        - done: 完成信号
+        - error: 错误信息
+
+        Args:
+            request: MessageRequest gRPC请求消息
+            context: grpc.ServicerContext gRPC上下文
+
+        Yields:
+            StreamChunk: 流式数据块
+        """
         import uuid
         import time as time_module
         request_id = str(uuid.uuid4())[:8]
@@ -273,7 +415,18 @@ class AgentServicer:
             AgentServicer.cleanup_instance(request_id)
 
     def _build_response(self, result, context):
-        """构建响应"""
+        """
+        构建响应消息
+
+        将agent处理结果转换为gRPC响应消息格式。
+
+        Args:
+            result: dict agent处理结果，包含success、answer、reasoning、history等字段
+            context: grpc.ServicerContext gRPC上下文
+
+        Returns:
+            MessageResponse: gRPC响应消息
+        """
         if result.get("success", False):
             reasoning = result.get("reasoning", {})
             history = result.get("history", [])
@@ -316,19 +469,54 @@ class AgentServicer:
             )
 
     def _build_error_response(self, error: str, context):
-        """构建错误响应"""
+        """
+        构建错误响应消息
+
+        Args:
+            error: str 错误信息
+            context: grpc.ServicerContext gRPC上下文
+
+        Returns:
+            MessageResponse: 包含错误信息的gRPC响应
+        """
         return agent_pb2.MessageResponse(
             success=False,
             error=error
         )
 
     def HealthCheck(self, request, context):
-        """健康检查"""
+        """
+        健康检查接口
+
+        用于监控服务状态和版本信息。
+
+        Args:
+            request: HealthRequest 健康检查请求（空）
+            context: grpc.ServicerContext gRPC上下文
+
+        Returns:
+            HealthResponse: 包含服务状态、版本和运行状态的响应
+        """
         return agent_pb2.HealthResponse(healthy=True, version="1.0.0", status="running")
 
 
 def serve(config_path: str = "config/config.json", port: int = 50051):
-    """启动 gRPC 服务器"""
+    """
+    启动 gRPC 服务器
+
+    创建并启动gRPC服务器，注册AgentServicer服务实现。
+
+    Args:
+        config_path: str LLM配置文件路径
+        port: int 服务监听端口，默认为50051
+
+    Returns:
+        grpc.Server: 运行的gRPC服务器实例
+
+    示例:
+        >>> server = serve("config/llm_config.yaml", 50051)
+        >>> server.wait_for_termination()  # 等待服务器终止
+    """
     # 使用同步服务器
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
 

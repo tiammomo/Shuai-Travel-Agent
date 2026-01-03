@@ -1,35 +1,97 @@
 """
-配置管理模块 (Configuration Manager)
-支持 JSON 和 YAML 配置文件格式
+配置管理模块 (Configuration Manager) - Web层配置管理
+
+本模块提供Web层的配置管理功能，支持JSON和YAML两种配置文件格式。
+采用代理模式，优先使用agent模块的统一ConfigManager实现。
+
+设计说明:
+    - 代理模式：优先尝试从agent模块导入统一的ConfigManager
+    - 回退机制：如果agent模块不可用，使用本地简化实现
+    - 这样既避免了代码重复，又保持了模块的独立性
+
+配置来源:
+    1. agent/config/config_manager.py (优先)
+    2. 本地回退实现
+
+使用示例:
+    from src.config.config_manager import ConfigManager
+
+    config = ConfigManager("config/llm_config.yaml")
+    models = config.get_available_models()
 """
 
 import json
 import os
+import sys
 import re
 import yaml
 from typing import Dict, Any, List, Optional
 
+# 尝试从 agent 模块导入统一的 ConfigManager
+_config_manager_class = None
+try:
+    # 添加 agent 目录到路径
+    agent_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'agent', 'src'))
+    if agent_path not in sys.path:
+        sys.path.insert(0, agent_path)
+    from config.config_manager import ConfigManager as AgentConfigManager
+    _config_manager_class = AgentConfigManager
+except (ImportError, ValueError):
+    pass
+
 
 class ConfigManager:
-    """配置管理器"""
+    """
+    配置管理器 (Web版本 - 代理到agent的统一实现)
+
+    采用代理模式，将请求转发给agent的ConfigManager处理。
+    如果agent模块不可用，则使用本地简化实现。
+
+    属性:
+        config_path: str 配置文件路径
+        config: Dict[str, Any] 原始配置数据
+        models_config: Dict[str, Dict] 模型配置字典
+        default_model_id: str 默认模型ID
+        travel_knowledge: Dict[str, Any] 旅游知识数据
+        _delegate: Optional[ConfigManager] 代理的agent ConfigManager实例
+    """
 
     def __init__(self, config_path: str = "config/llm_config.yaml"):
-        self.config_path = config_path
-        self.config: Dict[str, Any] = {}
-        self.models_config: Dict[str, Dict[str, Any]] = {}
-        self.default_model_id: str = "gpt-4o-mini"
+        """
+        初始化配置管理器
 
-        self._load_config()
+        优先使用agent的ConfigManager，如果不可用则使用本地实现。
+
+        Args:
+            config_path: str 配置文件路径
+        """
+        # 如果有 agent 的 ConfigManager，使用它
+        if _config_manager_class is not None:
+            self._delegate = _config_manager_class(config_path)
+            # 复制所有属性
+            self.config_path = self._delegate.config_path
+            self.config = self._delegate.config
+            self.models_config = self._delegate.models_config
+            self.default_model_id = self._delegate.default_model_id
+            self.travel_knowledge = getattr(self._delegate, 'travel_knowledge', {})
+        else:
+            # 回退到本地实现
+            self._delegate = None
+            self.config_path = config_path
+            self.config: Dict[str, Any] = {}
+            self.models_config: Dict[str, Dict[str, Any]] = {}
+            self.default_model_id: str = "gpt-4o-mini"
+            self.travel_knowledge: Dict[str, Any] = {}
+            self._load_config()
 
     def _load_config(self) -> None:
-        """加载配置文件，支持 YAML 和 JSON 格式"""
+        """加载配置文件，支持 YAML 和 JSON 格式 (本地回退实现)"""
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Configuration file missing: {self.config_path}")
 
         with open(self.config_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # 替换环境变量占位符 ${VAR_NAME}
         content = self._replace_env_vars(content)
 
         if self.config_path.endswith(('.yaml', '.yml')):
@@ -37,7 +99,6 @@ class ConfigManager:
         else:
             self.config = json.loads(content)
 
-        # 加载模型配置
         self.models_config = self.config.get('models', {})
         self.default_model_id = self.config.get('default_model', 'gpt-4o-mini')
 
@@ -67,10 +128,14 @@ class ConfigManager:
 
     def get_city_info(self, city_name: str) -> Optional[Dict[str, Any]]:
         """获取城市信息"""
-        return self.config.get('travel_knowledge', {}).get('cities', {}).get(city_name)
+        return self.travel_knowledge.get('cities', {}).get(city_name) or \
+               self.config.get('travel_knowledge', {}).get('cities', {}).get(city_name)
 
     def get_all_cities(self) -> List[str]:
         """获取所有城市列表"""
+        cities = self.travel_knowledge.get('cities', {})
+        if cities:
+            return list(cities.keys())
         return list(self.config.get('travel_knowledge', {}).get('cities', {}).keys())
 
     def get_available_models(self) -> List[Dict[str, Any]]:

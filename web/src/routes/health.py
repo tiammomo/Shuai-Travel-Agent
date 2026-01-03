@@ -1,4 +1,42 @@
-"""Health check API routes."""
+"""健康检查API路由模块 (Health Check API Routes)
+
+提供服务健康状态检查的RESTful API接口。
+用于负载均衡器和服务监控探测。
+
+主要组件:
+- router: API路由路由器
+- HealthResponse: 健康检查响应模型
+
+API端点:
+- GET /health - 详细健康检查（返回完整状态）
+- GET /ready - 就绪检查（服务是否准备好接收请求）
+- GET /live - 存活检查（服务是否正在运行）
+
+使用示例:
+    # 详细健康状态
+    GET /health
+
+    # 就绪检查
+    GET /ready
+
+    # 存活检查
+    GET /live
+
+响应格式:
+    /health: 返回完整的健康状态信息
+    /ready: {"status": "ready"}
+    /live: {"status": "alive"}
+
+应用场景:
+    - Kubernetes: livenessProbe 和 readinessProbe
+    - 负载均衡器: 流量分配决策
+    - 监控告警: 服务状态监控
+
+健康状态说明:
+    - healthy/ready/alive: 服务正常运行
+    - unhealthy/not ready: 服务异常，不可接收流量
+"""
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -6,7 +44,15 @@ router = APIRouter()
 
 
 class HealthResponse(BaseModel):
-    """Health check response."""
+    """
+    健康检查响应模型
+
+    属性:
+        status: str 服务状态（healthy/unhealthy）
+        version: str 应用版本号
+        agent: str Agent服务状态
+        services: dict 各子服务的健康状态
+    """
     status: str
     version: str
     agent: str
@@ -16,8 +62,21 @@ class HealthResponse(BaseModel):
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """
-    Health check endpoint.
-    Returns the status of the API and its dependencies.
+    详细健康检查端点
+
+    返回完整的健康状态信息，包括：
+    - 服务总体状态
+    - 应用版本
+    - Agent连接状态
+    - 各子服务状态
+
+    Returns:
+        HealthResponse: 完整的健康状态信息
+
+    子服务状态:
+        - api: API服务状态
+        - database: 数据库状态
+        - agent: Agent服务状态
     """
     return HealthResponse(
         status="healthy",
@@ -34,8 +93,18 @@ async def health_check():
 @router.get("/ready")
 async def readiness_check():
     """
-    Readiness check endpoint.
-    Returns 200 if the service is ready to accept traffic.
+    就绪检查端点
+
+    用于判断服务是否准备好接收流量。
+    在启动过程中返回not ready，完全启动后返回ready。
+
+    Returns:
+        {"status": "ready"} 服务已就绪
+
+    使用场景:
+        - Kubernetes readinessProbe
+        - 负载均衡器流量分配
+        - 服务发现注册
     """
     return {"status": "ready"}
 
@@ -43,7 +112,17 @@ async def readiness_check():
 @router.get("/live")
 async def liveness_check():
     """
-    Liveness check endpoint.
-    Returns 200 if the service is alive.
+    存活检查端点
+
+    用于判断服务是否正在运行。
+    这是最简单的检查，只确认进程存活。
+
+    Returns:
+        {"status": "alive"} 服务存活
+
+    使用场景:
+        - Kubernetes livenessProbe
+        - 进程存活验证
+        - 基础心跳检测
     """
     return {"status": "alive"}

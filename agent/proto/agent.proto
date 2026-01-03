@@ -1,92 +1,261 @@
+// =============================================================================
+// Agent gRPC 服务协议定义文件 (Agent Service Protocol Buffer Definitions)
+//
+// 本文件定义旅游规划 Agent 的 gRPC 服务接口和数据结构。
+// 用于 web 模块和 agent 模块之间的通信。
+//
+// 编译命令:
+//     python -m grpc_tools.protoc -I./proto --python_out=./web/src --grpc_python_out=./web/src proto/*.proto
+//
+// 服务说明:
+//     - AgentService: 提供消息处理和流式响应能力
+//     - 支持同步和流式两种处理模式
+//     - 包含健康检查接口
+//
+// 协议版本: proto3
+// =============================================================================
+
 syntax = "proto3";
 
+// 包声明，用于避免命名冲突
 package agent;
 
-// Agent 服务定义
+// =============================================================================
+// 服务定义 (Service Definitions)
+// =============================================================================
+
+// Agent 服务
+// 提供用户消息处理、流式响应和健康检查功能
 service AgentService {
-    // 处理用户消息
+    // 处理用户消息（同步模式）
+    // 接收用户输入，返回完整的处理结果
+    //
+    // 请求: MessageRequest - 包含会话ID、用户输入、模型ID等
+    // 响应: MessageResponse - 包含答案、推理过程、执行历史等
+    //
+    // 使用场景:
+    //     - 非流式响应需求
+    //     - 需要等待完整结果后统一返回
     rpc ProcessMessage (MessageRequest) returns (MessageResponse);
 
-    // 流式处理用户消息
+    // 流式处理用户消息（推荐）
+    // 接收用户输入，以流式方式返回思考过程和生成内容
+    //
+    // 请求: MessageRequest - 包含会话ID、用户输入、模型ID等
+    // 响应: stream StreamChunk - 流式返回的数据块
+    //
+    // chunk_type 说明:
+    //     - "thinking_start": 思考开始
+    //     - "thinking_chunk": 思考内容块
+    //     - "thinking_end": 思考结束
+    //     - "answer_start": 答案开始
+    //     - "answer": 答案内容块
+    //     - "done": 完成
+    //     - "error": 错误
+    //
+    // 使用场景:
+    //     - 需要实时展示思考过程
+    //     - 需要实时展示生成内容
+    //     - SSE 流式响应后端
     rpc StreamMessage (MessageRequest) returns (stream StreamChunk);
 
     // 健康检查
+    // 检查 Agent 服务是否正常运行
+    //
+    // 请求: HealthRequest - 空请求
+    // 响应: HealthResponse - 服务状态信息
     rpc HealthCheck (HealthRequest) returns (HealthResponse);
 }
 
+// =============================================================================
+// 消息定义 (Message Definitions)
+// =============================================================================
+
 // 消息请求
+// 客户端发送的请求消息，包含会话信息和用户输入
 message MessageRequest {
+    // 会话ID，用于标识对话上下文
+    // 可选，如果不提供服务端会创建新会话
     string session_id = 1;
+
+    // 用户输入的文本内容
+    // 例如: "北京三日游怎么安排？"
     string user_input = 2;
+
+    // 模型ID，指定使用的AI模型
+    // 可选，如果不提供使用默认模型
+    // 例如: "gpt-4o-mini", "claude-3-5-sonnet"
     string model_id = 3;
+
+    // 是否启用流式响应
+    // true: 使用 StreamMessage 获取流式响应
+    // false: 使用 ProcessMessage 获取完整响应
     bool stream = 4;
 }
 
 // 消息响应
+// 服务端返回的完整处理结果
 message MessageResponse {
+    // 处理是否成功
+    // true: 处理正常完成
+    // false: 处理出错，详情见 error 字段
     bool success = 1;
+
+    // AI 生成的回答内容
+    // 旅游规划建议、景点推荐、路线安排等
     string answer = 2;
+
+    // 推理过程信息
+    // 包含思考文本、使用的工具列表等
     ReasoningInfo reasoning = 3;
+
+    // 错误信息
+    // 当 success 为 false 时，此字段包含错误描述
     string error = 4;
+
+    // 执行历史
+    // 记录 Agent 的思考和行动步骤
+    // 用于调试和分析 Agent 行为
     repeated HistoryStep history = 5;
 }
 
 // 推理信息
+// 记录 Agent 的思考过程
 message ReasoningInfo {
+    // 思考内容的文本描述
     string text = 1;
+
+    // 总共执行的思考步骤数
     int32 total_steps = 2;
+
+    // 使用的工具列表
+    // 例如: ["search_city", "get_attractions", "calculate_budget"]
     repeated string tools_used = 3;
 }
 
 // 历史步骤
+// 记录每一步的思考、行动和评估
 message HistoryStep {
+    // 步骤序号，从1开始
     int32 step = 1;
+
+    // 思考信息
     ThoughtInfo thought = 2;
+
+    // 行动信息
     ActionInfo action = 3;
+
+    // 评估信息
     EvaluationInfo evaluation = 4;
+
+    // 时间戳，ISO格式
+    // 例如: "2024-01-15T10:30:00.000Z"
     string timestamp = 5;
 }
 
 // 思考信息
+// Agent 的思考过程记录
 message ThoughtInfo {
+    // 思考步骤ID
     string id = 1;
+
+    // 思考类型
+    // 例如: "task_analysis", "planning", "evaluation"
     string type = 2;
+
+    // 思考内容
     string content = 3;
+
+    // 置信度，0.0-1.0
     float confidence = 4;
+
+    // 决策结果
     string decision = 5;
 }
 
 // 行动信息
+// Agent 执行工具调用的记录
 message ActionInfo {
+    // 行动ID
     string id = 1;
+
+    // 工具名称
+    // 例如: "search_city", "get_attractions", "plan_route"
     string tool_name = 2;
+
+    // 工具参数
+    // 键值对形式，例如: {"city": "北京", "days": "3"}
     map<string, string> parameters = 3;
+
+    // 执行状态
+    // 例如: "pending", "running", "completed", "failed"
     string status = 4;
+
+    // 执行耗时（毫秒）
     int32 duration = 5;
+
+    // 执行结果
     string result = 6;
+
+    // 错误信息
     string error = 7;
 }
 
 // 评估信息
+// 行动执行的评估结果
 message EvaluationInfo {
+    // 是否成功
     bool success = 1;
+
+    // 耗时（毫秒）
     int32 duration = 2;
+
+    // 是否有结果
     bool has_result = 3;
 }
 
 // 流式块
+// 流式响应中的单个数据块
 message StreamChunk {
-    string chunk_type = 1;  // "thinking", "answer", "done", "error"
+    // 块类型，标识数据块的用途
+    // 可选值:
+    //     - "thinking_start": 思考开始标识
+    //     - "thinking_chunk": 思考内容片段
+    //     - "thinking_end": 思考结束标识
+    //     - "answer_start": 答案开始标识
+    //     - "answer": 答案内容片段
+    //     - "done": 流式传输完成
+    //     - "error": 错误信息
+    string chunk_type = 1;
+
+    // 内容
+    // 当 chunk_type 为 "thinking_chunk" 或 "answer" 时为文本内容
+    // 当 chunk_type 为 "error" 时为错误信息
     string content = 2;
+
+    // 是否为最后一个块
+    // true: 当前块是本次响应的最后一个数据块
+    // false: 还有更多数据块待传输
     bool is_last = 3;
 }
 
+// =============================================================================
+// 健康检查定义 (Health Check Definitions)
+// =============================================================================
+
 // 健康检查请求
+// 空消息，仅用于触发健康检查
 message HealthRequest {}
 
 // 健康检查响应
+// 返回服务健康状态信息
 message HealthResponse {
+    // 服务是否健康
     bool healthy = 1;
+
+    // 服务版本号
     string version = 2;
+
+    // 详细状态描述
     string status = 3;
 }

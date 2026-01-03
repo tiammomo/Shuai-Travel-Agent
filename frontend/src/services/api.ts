@@ -206,11 +206,11 @@ class APIService {
       callbacks.onConnectionChange?.(this.connectionStatus);
     }
 
-    // 设置超时控制器（60秒超时）
+    // 设置超时控制器（180秒超时，需大于后端120秒超时）
     const timeoutId = setTimeout(() => {
       controller.abort();
       console.warn('[API] 请求超时，已自动取消');
-    }, 60000);
+    }, 180000);
 
     try {
       const response = await fetch(`${API_PREFIX}/chat/stream`, {

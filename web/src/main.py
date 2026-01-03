@@ -1,7 +1,31 @@
 """
-ShuaiTravelAgent Web API Server
+ShuaiTravelAgent Web API Server - ShuaiTravelAgent Web API服务器
 
-FastAPI-based web server for the travel agent application.
+本模块是Web服务的入口点，使用FastAPI框架构建REST API。
+提供聊天、对话管理、模型配置、城市信息等API接口。
+
+功能特点:
+- RESTful API设计
+- SSE流式响应支持
+- CORS跨域支持
+- 依赖注入容器
+- gRPC客户端集成
+
+启动方式:
+    # 方式1: 直接运行
+    python main.py --host 0.0.0.0 --port 8000 --debug
+
+    # 方式2: 使用uvicorn
+    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+API端点:
+    GET  /                       - API信息
+    GET  /api/health             - 健康检查
+    POST /api/chat/stream        - SSE流式聊天
+    GET  /api/sessions           - 获取会话列表
+    GET  /api/sessions/{id}      - 获取会话详情
+    GET  /api/models             - 获取可用模型
+    GET  /api/cities             - 获取城市列表
 """
 
 import os
@@ -14,7 +38,22 @@ from src.routes.model import set_config_manager
 
 
 def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
+    """
+    创建并配置FastAPI应用
+
+    初始化所有中间件、配置、服务和路由。
+
+    Returns:
+        FastAPI: 配置完成的FastAPI应用实例
+
+    初始化流程:
+        1. 创建FastAPI实例
+        2. 配置CORS中间件
+        3. 加载配置管理器
+        4. 初始化依赖注入容器
+        5. 注册路由
+        6. 初始化gRPC客户端
+    """
     app = FastAPI(
         title="ShuaiTravelAgent API",
         description="AI Travel Assistant API with SSE streaming support",
@@ -75,7 +114,7 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     async def root():
-        """Root endpoint."""
+        """根端点 - 返回API基本信息"""
         return {
             "name": "ShuaiTravelAgent API",
             "version": "1.0.0",
@@ -90,7 +129,14 @@ app = create_app()
 
 
 def main(host: str = "0.0.0.0", port: int = 8000, debug: bool = False):
-    """Run the server."""
+    """
+    启动Web服务器
+
+    Args:
+        host: str 监听地址，默认"0.0.0.0"
+        port: int 监听端口，默认8000
+        debug: bool 是否开启调试模式，默认False
+    """
     uvicorn.run(
         "main:app",
         host=host,
@@ -104,10 +150,10 @@ if __name__ == "__main__":
     import sys
     import argparse
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--debug", action="store_true")
+    parser = argparse.ArgumentParser(description='ShuaiTravelAgent Web Server')
+    parser.add_argument("--host", default="0.0.0.0", help="服务器监听地址")
+    parser.add_argument("--port", type=int, default=8000, help="服务器监听端口")
+    parser.add_argument("--debug", action="store_true", help="开启调试模式")
 
     args = parser.parse_args()
 

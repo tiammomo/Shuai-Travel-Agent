@@ -1,12 +1,42 @@
 """
 多协议大模型调用模块 (Multi-Protocol LLM Client)
 
-支持 OpenAI、Anthropic Claude、Google Gemini 等协议。
+本模块提供统一的LLM客户端接口，支持多种协议和模型提供商。
+采用适配器模式设计，通过不同的协议适配器来适配OpenAI、Anthropic、Google、Ollama等协议。
+
+主要组件:
+- LLMProtocolAdapter: 协议适配器抽象基类，定义了统一的接口
+- OpenAIAdapter: OpenAI API协议适配器
+- AnthropicAdapter: Anthropic Claude API协议适配器
+- GoogleAdapter: Google Gemini API协议适配器
+- OllamaAdapter: Ollama本地模型适配器
+- LLMClient: 统一的LLM客户端封装
+- LLMClientFactory: LLM客户端工厂类
+
+功能特点:
+- 支持同步和流式两种调用方式
+- 自动重试机制，网络错误时指数退避
+- 统一的响应格式，包含成功状态、内容、token使用量等信息
+- 专门针对旅游场景的推荐和路线规划方法
+
+使用示例:
+    from llm.client import LLMClientFactory
+
+    # 通过配置创建客户端
+    config = {"provider": "openai", "model": "gpt-4", "api_key": "..."}
+    client = LLMClientFactory.create_adapter(config)
+
+    # 同步调用
+    response = client.chat([{"role": "user", "content": "你好"}])
+
+    # 流式调用
+    for chunk in client.chat_stream([{"role": "user", "content": "你好"}]):
+        print(chunk, end="", flush=True)
 """
 
 import json
 import time
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod  # 抽象基类用于定义接口协议
 from typing import Dict, Any, List, Optional, Iterator
 import urllib.request
 import urllib.error
@@ -14,7 +44,16 @@ from enum import Enum
 
 
 class ProtocolType(Enum):
-    """支持的LLM协议类型"""
+    """
+    支持的LLM协议类型枚举
+
+    定义了系统支持的所有大模型协议类型，每种类型对应不同的API接口规范。
+    - OPENAI: OpenAI官方API协议
+    - ANTHROPIC: Anthropic Claude API协议
+    - GOOGLE: Google Gemini API协议
+    - OLLAMA: Ollama本地模型协议
+    - OPENAI_COMPATIBLE: 兼容OpenAI API协议的通用接口
+    """
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"

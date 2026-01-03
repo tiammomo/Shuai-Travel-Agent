@@ -98,7 +98,11 @@
       "Bash(\"D:\\\\codes\\\\anaconda3\\\\envs\\\\agents\\\\python.exe\" main.py:*)",
       "Bash(\"D:\\\\codes\\\\anaconda3\\\\envs\\\\agents\\\\python.exe\" -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload)",
       "Bash(\"D:\\\\codes\\\\anaconda3\\\\envs\\\\agents\\\\python.exe\" -m uvicorn:*)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(git checkout:*)",
+      "Bash(git tag:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)"
     ]
   }
 }

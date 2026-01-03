@@ -1,4 +1,53 @@
-"""Chat API routes with SSE streaming."""
+"""Chat API routes with SSE streaming.
+
+聊天API路由模块
+
+提供基于SSE（Server-Sent Events）的流式聊天接口，
+通过gRPC调用后端Agent服务实现智能对话。
+
+主要组件:
+- SSEEventType: SSE事件类型常量类
+- ChatRequest: 聊天请求数据模型
+- generate_chat_stream(): 生成聊天流式响应
+- stream_chat(): SSE流式聊天API端点
+
+功能特点:
+- 真正的token级别流式输出
+- 实时展示思考过程（reasoning）
+- 心跳机制防止连接超时（30秒间隔）
+- 客户端断开连接检测
+- 请求超时保护（120秒）
+- 完善的错误处理和用户友好的错误提示
+
+SSE事件类型:
+- session_id: 会话ID分配事件
+- reasoning_start: 思考开始事件
+- reasoning_chunk: 思考内容块事件
+- reasoning_end: 思考结束事件
+- answer_start: 答案开始事件
+- chunk: 答案内容块事件
+- error: 错误事件
+- done: 完成事件
+- heartbeat: 心跳事件
+- metadata: 元数据事件
+
+使用示例:
+    POST /api/chat/stream
+    Content-Type: application/json
+
+    {
+        "message": "北京三日游怎么安排？",
+        "session_id": "optional-session-id"
+    }
+
+    响应: text/event-stream
+    data: {"type": "session_id", "session_id": "xxx"}
+    data: {"type": "reasoning_start"}
+    data: {"type": "reasoning_chunk", "content": "分析用户需求..."}
+    ...
+    data: {"type": "done"}
+"""
+
 import asyncio
 import json
 from typing import AsyncGenerator, Optional
@@ -16,13 +65,35 @@ from ..dependencies.container import get_container
 
 router = APIRouter()
 
-# 全局变量
+# 全局变量 - 用于缓存gRPC stub，避免重复初始化
 _grpc_stub = None
 _agent_pb2 = None
 _agent_pb2_grpc = None
 
-# SSE 事件类型常量
+
 class SSEEventType:
+    """
+    SSE事件类型常量类
+
+    定义了SSE流式响应中所有可能的事件类型。
+
+    事件流程:
+    1. session_id -> reasoning_start -> reasoning_chunk* -> reasoning_end
+    2. answer_start -> chunk* -> done
+    3. 任意时刻可能收到 error 或 heartbeat
+
+    属性:
+        SESSION_ID: 会话ID分配事件
+        REASONING_START: 思考开始事件
+        REASONING_CHUNK: 思考内容块事件
+        REASONING_END: 思考结束事件
+        ANSWER_START: 答案开始事件
+        CHUNK: 答案内容块事件（token级别）
+        ERROR: 错误事件
+        DONE: 完成事件
+        HEARTBEAT: 心跳事件（保持连接活跃）
+        METADATA: 元数据事件
+    """
     SESSION_ID = "session_id"
     REASONING_START = "reasoning_start"
     REASONING_CHUNK = "reasoning_chunk"
@@ -36,7 +107,15 @@ class SSEEventType:
 
 
 def _ensure_proto_imported():
-    """Ensure proto modules are imported."""
+    """
+    确保proto模块已正确导入
+
+    由于web和agent是独立的模块，需要动态添加agent的proto目录到Python路径。
+    使用包导入方式（from proto import xxx）而不是直接导入.py文件。
+
+     Raises:
+        ImportError: 如果proto模块不存在或导入失败
+    """
     global _agent_pb2, _agent_pb2_grpc, _grpc_stub
     if _agent_pb2 is None:
         # 添加 agent 根目录到路径，使 proto 可以作为包被正确导入
@@ -52,7 +131,19 @@ def _ensure_proto_imported():
 
 
 def init_grpc_stub(host: str = 'localhost', port: int = 50051):
-    """Initialize gRPC stub (synchronous)."""
+    """
+    初始化gRPC stub（同步方式）
+
+    创建与Agent gRPC服务的连接通道和stub。
+    使用同步insecure_channel，适合FastAPI的同步上下文。
+
+    Args:
+        host: str Agent服务主机地址，默认localhost
+        port: int Agent服务端口，默认50051
+
+    Returns:
+        AgentServiceStub: gRPC服务存根
+    """
     global _grpc_stub
     if _grpc_stub is None:
         _ensure_proto_imported()
@@ -63,7 +154,15 @@ def init_grpc_stub(host: str = 'localhost', port: int = 50051):
 
 
 def get_grpc_stub():
-    """Get the gRPC stub."""
+    """
+    获取已初始化的gRPC stub
+
+    Returns:
+        AgentServiceStub: gRPC服务存根
+
+    Raises:
+        RuntimeError: 如果stub未初始化（未调用init_grpc_stub）
+    """
     global _grpc_stub
     if _grpc_stub is None:
         raise RuntimeError("gRPC stub not initialized. Call init_grpc_stub() first.")
@@ -71,40 +170,79 @@ def get_grpc_stub():
 
 
 class ChatRequest(BaseModel):
-    """Chat request model."""
+    """
+    聊天请求数据模型
+
+    属性:
+        message: str 用户输入的消息内容，必填
+        session_id: Optional[str] 会话ID，可选，如果未提供则自动创建
+    """
     message: str
     session_id: Optional[str] = None
 
 
 def get_chat_service() -> ChatService:
-    """Get the chat service from the container."""
+    """
+    从依赖容器获取ChatService实例
+
+    Returns:
+        ChatService: 聊天服务实例
+    """
     container = get_container()
     return container.resolve('ChatService')
 
 
 def get_session_service():
-    """Get the session service from the container."""
+    """
+    从依赖容器获取SessionService实例
+
+    Returns:
+        SessionService: 会话服务实例
+    """
     container = get_container()
     return container.resolve('SessionService')
 
 
 async def generate_chat_stream(message: str, session_id: str, request: Request = None) -> AsyncGenerator[str, None]:
-    """Generate a chat response stream by calling the backend Agent gRPC service with true streaming.
+    """
+    生成聊天流式响应
 
-    Features:
-    - Heartbeat mechanism to prevent connection timeout
-    - Request timeout protection (120 seconds)
-    - Client disconnect detection
+    核心流式生成器函数，通过调用后端Agent gRPC服务获取响应，
+    并将响应转换为SSE格式流式发送给客户端。
+
+    工作流程:
+    1. 如果未提供session_id，创建新会话
+    2. 发送session_id事件
+    3. 调用gRPC StreamMessage接口获取流式响应
+    4. 遍历gRPC流，将思考和答案转换为SSE事件
+    5. 每30秒发送心跳保持连接
+    6. 检测客户端断开连接，及时停止处理
+    7. 处理完成后发送done事件
+
+    Args:
+        message: str 用户输入的消息
+        session_id: str 会话ID
+        request: Request FastAPI请求对象，用于检测客户端断开
+
+    Yields:
+        str: SSE格式的数据行，以"data: "开头，以"\n\n"结尾
+
+    异常处理:
+        grpc.RpcError: gRPC调用失败
+        asyncio.CancelledError: 请求被取消（客户端断开）
+        Exception: 其他异常
     """
     import logging
     logger = logging.getLogger(__name__)
 
     session_service = get_session_service()
 
+    # 如果没有session_id，创建新会话
     if not session_id:
         result = await session_service.create_session()
         session_id = result['session_id']
 
+    # 发送session_id事件
     yield f"data: {json.dumps({'type': SSEEventType.SESSION_ID, 'session_id': session_id})}\n\n"
 
     # 请求超时控制器
@@ -119,6 +257,7 @@ async def generate_chat_stream(message: str, session_id: str, request: Request =
         logger.info(f"[Chat] 通过 gRPC StreamMessage 调用 Agent 服务...")
         stub = get_grpc_stub()
 
+        # 构建gRPC请求消息
         request_msg = _agent_pb2.MessageRequest(
             session_id=session_id,
             user_input=message,
@@ -126,7 +265,7 @@ async def generate_chat_stream(message: str, session_id: str, request: Request =
             stream=True
         )
 
-        # 使用 asyncio.to_thread 在线程池中执行同步 gRPC 流
+        # 使用asyncio.to_thread在线程池中执行同步gRPC流（可选优化）
         chunk_iterator = stub.StreamMessage(request_msg)
 
         # 最后一次心跳时间
@@ -155,6 +294,7 @@ async def generate_chat_stream(message: str, session_id: str, request: Request =
                 yield f"data: {heartbeat_data}\n\n"
                 last_heartbeat = datetime.now()
 
+            # 根据chunk类型转换为SSE事件
             if chunk_type == "thinking_start":
                 yield f"data: {json.dumps({'type': SSEEventType.REASONING_START})}\n\n"
                 await asyncio.sleep(0.01)  # 10ms 延迟确保数据分开发送
@@ -171,6 +311,7 @@ async def generate_chat_stream(message: str, session_id: str, request: Request =
                 yield f"data: {json.dumps({'type': SSEEventType.CHUNK, 'content': content})}\n\n"
                 await asyncio.sleep(0.01)  # 10ms 延迟确保每个chunk分开发送
             elif chunk_type == "error":
+                # 错误处理：展示错误信息并提供友好提示
                 yield f"data: {json.dumps({'type': SSEEventType.REASONING_CHUNK, 'content': f'处理出错: {content}'})}\n\n"
                 yield f"data: {json.dumps({'type': SSEEventType.REASONING_END})}\n\n"
                 yield f"data: {json.dumps({'type': SSEEventType.ANSWER_START})}\n\n"
@@ -206,14 +347,50 @@ async def generate_chat_stream(message: str, session_id: str, request: Request =
 @router.post("/chat/stream")
 async def stream_chat(request: ChatRequest, fastapi_request: Request):
     """
-    Stream a chat response using Server-Sent Events.
-    Calls the backend Agent gRPC service for intelligent responses.
+    SSE流式聊天API端点
 
-    Features:
-    - Heartbeat every 30 seconds to prevent connection timeout
-    - Client disconnect detection for resource cleanup
-    - CORS and security headers
+    提供基于Server-Sent Events的流式聊天接口，
+    通过gRPC调用后端Agent服务实现智能旅游规划对话。
+
+    请求格式:
+        POST /api/chat/stream
+        Content-Type: application/json
+
+        {
+            "message": "北京三日游怎么安排？",
+            "session_id": "optional-session-id"
+        }
+
+    响应格式:
+        Content-Type: text/event-stream
+
+        data: {"type": "session_id", "session_id": "xxx"}
+        data: {"type": "reasoning_start"}
+        data: {"type": "reasoning_chunk", "content": "分析用户需求..."}
+        data: {"type": "reasoning_end"}
+        data: {"type": "answer_start"}
+        data: {"type": "chunk", "content": "根据您的需求..."}
+        ...
+        data: {"type": "done"}
+
+    响应头:
+        Cache-Control: no-cache - 禁用缓存
+        Connection: keep-alive - 保持连接
+        X-Accel-Buffering: no - 禁用Nginx缓冲
+        X-Content-Type-Options: nosniff - 防止MIME类型嗅探
+        X-Frame-Options: DENY - 防止点击劫持
+
+    Args:
+        request: ChatRequest 聊天请求，包含message和可选的session_id
+        fastapi_request: Request FastAPI原始请求对象
+
+    Returns:
+        StreamingResponse: SSE流式响应
+
+    Raises:
+        HTTPException: 422 - 消息为空或超过5000字符
     """
+    # 验证消息不能为空
     if not request.message or not request.message.strip():
         raise HTTPException(status_code=422, detail="消息不能为空")
 
@@ -221,6 +398,7 @@ async def stream_chat(request: ChatRequest, fastapi_request: Request):
     if len(request.message) > 5000:
         raise HTTPException(status_code=422, detail="消息长度不能超过5000字符")
 
+    # 返回SSE流式响应
     return StreamingResponse(
         generate_chat_stream(request.message, request.session_id or "", fastapi_request),
         media_type="text/event-stream",

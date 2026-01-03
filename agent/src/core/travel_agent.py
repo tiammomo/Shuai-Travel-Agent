@@ -1,8 +1,34 @@
 """
-ReAct 旅游助手 Agent
-====================
+================================================================================
+ReAct 旅游助手 Agent - 核心实现模块
+================================================================================
 
-基于 ReAct (Reasoning and Acting) 模式的旅游智能体实现。
+本模块实现了基于 ReAct (Reasoning and Acting) 模式的旅游智能体。
+
+功能概述：
+- 提供完整的旅游相关工具集（城市搜索、景点查询、路线规划、预算计算等）
+- 集成 LLM 进行自然语言理解和回答生成
+- 支持同步和流式两种处理模式
+- 维护对话历史和用户偏好
+
+ReAct 模式流程：
+1. 接收用户输入，分析意图
+2. 选择合适的工具执行
+3. 收集工具执行结果
+4. 使用 LLM 生成最终回答
+
+核心组件：
+- create_travel_tools: 旅游工具工厂函数
+- 工具执行函数: _search_cities, _query_attractions, _generate_route 等
+- ReActTravelAgent: 旅游助手主类
+
+使用示例：
+```python
+agent = ReActTravelAgent(config_path="config/llm_config.yaml")
+result = await agent.process("北京三日游推荐")
+```
+
+================================================================================
 """
 
 import json
@@ -13,12 +39,13 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 # 添加父目录到路径以支持外部导入
+# 这解决了模块间相对导入的问题，确保可以正确找到 core、config 等模块
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_SRC_DIR = os.path.dirname(CURRENT_DIR)
 if AGENT_SRC_DIR not in sys.path:
     sys.path.insert(0, AGENT_SRC_DIR)
 
-# 使用绝对导入替代相对导入
+# 使用绝对导入替代相对导入，提高代码可读性和可维护性
 from core.react_agent import ReActAgent, ToolInfo, Action, Thought, AgentState, ActionStatus
 from config.config_manager import ConfigManager
 from memory.manager import MemoryManager
@@ -26,11 +53,41 @@ from llm.client import LLMClient
 
 
 def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
-    """创建旅游助手工具列表"""
+    """
+    创建旅游助手工具列表
+
+    该函数是旅游工具的工厂方法，负责创建所有可用的旅游相关工具。
+    每个工具由两部分组成：
+    1. ToolInfo: 工具的元数据描述（名称、参数、分类等）
+    2. executor: 工具的实际执行函数
+
+    工具列表包括：
+    - search_cities: 根据条件搜索匹配的城市
+    - query_attractions: 查询城市景点信息
+    - generate_route: 生成旅游路线规划
+    - calculate_budget: 计算旅游预算
+    - get_city_info: 获取城市详细信息
+    - llm_chat: LLM 对话回答
+    - generate_city_recommendation: 生成城市推荐
+    - generate_route_plan: 生成详细路线计划
+
+    Args:
+        config_manager: 配置管理器实例，用于获取城市数据等信息
+
+    Returns:
+        List[tuple]: 工具元组列表，每个元素为 (ToolInfo, executor_func)
+
+    Examples:
+        >>> tools = create_travel_tools(config_manager)
+        >>> for tool_info, executor in tools:
+        ...     agent.register_tool(tool_info, executor)
+    """
     from environment.travel_data import TravelData
 
     tools = []
 
+    # ========== 工具1: 城市搜索 ==========
+    # 根据用户兴趣、预算和季节偏好搜索匹配的城市
     tools.append((
         ToolInfo(
             name="search_cities",
@@ -41,21 +98,24 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
                     'interests': {
                         'type': 'array',
                         'items': {'type': 'string'},
-                        'description': '用户兴趣标签列表'
+                        'description': '用户兴趣标签列表，如 ["美食", "历史", "自然风光"]'
                     },
-                    'budget_min': {'type': 'integer', 'description': '最低预算'},
-                    'budget_max': {'type': 'integer', 'description': '最高预算'},
-                    'season': {'type': 'string', 'description': '旅行季节'}
+                    'budget_min': {'type': 'integer', 'description': '最低预算金额（元）'},
+                    'budget_max': {'type': 'integer', 'description': '最高预算金额（元）'},
+                    'season': {'type': 'string', 'description': '旅行季节，如 "春季", "夏季"'}
                 }
             },
-            required_params=[],
+            required_params=[],  # 所有参数都是可选的
             category='travel',
             tags=['search', 'city', 'recommend']
         ),
+        # 执行函数：调用内部函数处理搜索逻辑
         lambda interests=None, budget_min=None, budget_max=None, season=None:
             _search_cities(config_manager, interests, (budget_min, budget_max) if budget_min and budget_max else None, season)
     ))
 
+    # ========== 工具2: 景点查询 ==========
+    # 查询指定城市的景点信息
     tools.append((
         ToolInfo(
             name="query_attractions",
@@ -69,7 +129,7 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
                         'description': '要查询的城市名称列表'
                     }
                 },
-                'required': ['cities']
+                'required': ['cities']  # cities 是必填参数
             },
             required_params=['cities'],
             category='travel',
@@ -78,6 +138,8 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
         lambda cities: _query_attractions(config_manager, cities)
     ))
 
+    # ========== 工具3: 路线生成 ==========
+    # 为指定城市生成详细的旅游路线规划
     tools.append((
         ToolInfo(
             name="generate_route",
@@ -88,7 +150,7 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
                     'city': {'type': 'string', 'description': '目标城市名称'},
                     'days': {'type': 'integer', 'description': '旅行天数，默认3天', 'default': 3}
                 },
-                'required': ['city']
+                'required': ['city']  # city 是必填参数
             },
             required_params=['city'],
             category='travel',
@@ -97,6 +159,8 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
         lambda city, days=3: _generate_route(config_manager, city, days)
     ))
 
+    # ========== 工具4: 预算计算 ==========
+    # 计算指定城市和天数的旅游预算
     tools.append((
         ToolInfo(
             name="calculate_budget",
@@ -107,7 +171,7 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
                     'city': {'type': 'string', 'description': '目标城市'},
                     'days': {'type': 'integer', 'description': '旅行天数'}
                 },
-                'required': ['city', 'days']
+                'required': ['city', 'days']  # city 和 days 都是必填参数
             },
             required_params=['city', 'days'],
             category='travel',
@@ -116,6 +180,8 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
         lambda city, days: _calculate_budget(config_manager, city, days)
     ))
 
+    # ========== 工具5: 城市信息 ==========
+    # 获取指定城市的详细信息
     tools.append((
         ToolInfo(
             name="get_city_info",
@@ -134,6 +200,8 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
         lambda city: _get_city_info(config_manager, city)
     ))
 
+    # ========== 工具6: LLM 对话 ==========
+    # 使用大语言模型进行对话回答
     tools.append((
         ToolInfo(
             name="llm_chat",
@@ -153,6 +221,8 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
         lambda query, context="": _llm_chat(config_manager, query, context)
     ))
 
+    # ========== 工具7: 城市推荐 ==========
+    # 根据用户需求生成个性化城市推荐
     tools.append((
         ToolInfo(
             name="generate_city_recommendation",
@@ -176,6 +246,8 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
         lambda user_query, available_cities: _generate_recommendation(config_manager, user_query, available_cities)
     ))
 
+    # ========== 工具8: 路线规划 ==========
+    # 根据城市景点信息生成详细路线规划
     tools.append((
         ToolInfo(
             name="generate_route_plan",
@@ -199,20 +271,92 @@ def create_travel_tools(config_manager: ConfigManager) -> List[tuple]:
     return tools
 
 
+# ==============================================================================
+# 工具执行函数
+# 这些函数是工具的具体实现，由 create_travel_tools 中定义的 lambda 调用
+# ==============================================================================
+
 def _search_cities(config_manager, interests: List[str] = None,
                    budget: tuple = None, season: str = None) -> Dict[str, Any]:
+    """
+    搜索匹配的城市
+
+    根据用户的兴趣标签、预算范围和出行季节，从数据库中搜索匹配的城市。
+
+    Args:
+        config_manager: 配置管理器
+        interests: 用户兴趣标签列表，如 ["美食", "历史文化"]
+        budget: 预算范围元组 (最低, 最高)，如 (1000, 5000)
+        season: 出行季节，如 "春季", "夏季"
+
+    Returns:
+        Dict: 包含搜索结果的字典，格式为 {'success': bool, 'cities': [...]}
+
+    Examples:
+        >>> result = _search_cities(None, ["美食"], (1000, 3000), "春季")
+        >>> if result['success']:
+        ...     for city in result['cities']:
+        ...         print(city['name'])
+    """
     from environment.travel_data import TravelData
     env = TravelData(config_manager)
     return env.search_cities(interests, budget, season)
 
 
 def _query_attractions(config_manager, cities: List[str]) -> Dict[str, Any]:
+    """
+    查询城市景点信息
+
+    获取指定城市的景点列表和相关详细信息。
+
+    Args:
+        config_manager: 配置管理器
+        cities: 要查询的城市名称列表
+
+    Returns:
+        Dict: 包含景点信息的字典，格式为 {'success': bool, 'data': {...}}
+
+    Examples:
+        >>> result = _query_attractions(None, ["北京", "上海"])
+        >>> if result['success']:
+        ...     for city, info in result['data'].items():
+        ...         print(f"{city}: {len(info.get('attractions', []))} 个景点")
+    """
     from environment.travel_data import TravelData
     env = TravelData(config_manager)
     return env.query_attractions(cities)
 
 
 def _generate_route(config_manager, city: str, days: int) -> Dict[str, Any]:
+    """
+    生成旅游路线规划
+
+    根据城市信息和旅行天数，自动生成每日的景点游览路线。
+
+    算法逻辑：
+    1. 获取城市基本信息
+    2. 提取城市景点列表
+    3. 按天数分配景点，生成每日路线
+    4. 计算预估费用
+
+    Args:
+        config_manager: 配置管理器
+        city: 目标城市名称
+        days: 旅行天数
+
+    Returns:
+        Dict: 路线规划结果，包含：
+        - success: 是否成功
+        - city: 城市名称
+        - route_plan: 每日路线列表
+        - total_cost_estimate: 费用估算
+
+    Examples:
+        >>> result = _generate_route(None, "北京", 3)
+        >>> if result['success']:
+        ...     for day in result['route_plan']:
+        ...         print(f"第{day['day']}天: {day['schedule']}")
+    """
     from environment.travel_data import TravelData
     env = TravelData(config_manager)
     result = env.get_city_info(city)
@@ -222,6 +366,8 @@ def _generate_route(config_manager, city: str, days: int) -> Dict[str, Any]:
     city_info = result.get('info', {})
     attractions = city_info.get('attractions', [])
 
+    # 生成路线计划
+    # 策略：每天分配一个主要景点，按顺序循环
     route_plan = []
     for i in range(min(days, len(attractions))):
         attr = attractions[i] if i < len(attractions) else {'name': '自由活动'}
@@ -231,39 +377,85 @@ def _generate_route(config_manager, city: str, days: int) -> Dict[str, Any]:
             'schedule': f'游览{attr.get("name", "自由活动")}'
         })
 
+    # 计算费用估算
+    # 门票费用 + 每日平均花费
     return {
         'success': True,
         'city': city,
         'route_plan': route_plan,
         'total_cost_estimate': {
             'tickets': sum(a.get('ticket', 0) for a in attractions[:days]),
-            'total': sum(a.get('ticket', 0) for a in attractions[:days]) + city_info.get('avg_budget_per_day', 400) * days
+            'total': sum(a.get('ticket', 0) for a in attractions[:days]) +
+                     city_info.get('avg_budget_per_day', 400) * days
         }
     }
 
 
 def _calculate_budget(config_manager, city: str, days: int) -> Dict[str, Any]:
+    """
+    计算旅游预算
+
+    根据城市物价水平和旅行天数，计算预计花费。
+
+    Args:
+        config_manager: 配置管理器
+        city: 目标城市
+        days: 旅行天数
+
+    Returns:
+        Dict: 预算计算结果，包含各项目的费用明细
+    """
     from environment.travel_data import TravelData
     env = TravelData(config_manager)
     return env.calculate_budget(city, days)
 
 
 def _get_city_info(config_manager, city: str) -> Dict[str, Any]:
+    """
+    获取城市详细信息
+
+    获取指定城市的完整信息，包括区域、标签、季节、预算、景点等。
+
+    Args:
+        config_manager: 配置管理器
+        city: 城市名称
+
+    Returns:
+        Dict: 城市详细信息，包含：
+        - success: 是否成功
+        - city: 城市名称
+        - info: 详细信息字典
+    """
     from environment.travel_data import TravelData
     env = TravelData(config_manager)
     return env.get_city_info(city)
 
 
 def _llm_chat(config_manager, query: str, context: str = "") -> Dict[str, Any]:
+    """
+    LLM 对话回答
+
+    使用大语言模型生成回答，处理用户的一般性问题。
+
+    Args:
+        config_manager: 配置管理器
+        query: 用户问题
+        context: 对话上下文（可选）
+
+    Returns:
+        Dict: LLM 回答结果，格式为 {'success': bool, 'response': str}
+    """
     llm_config = config_manager.get_default_model_config()
     llm_client = LLMClient(llm_config)
 
     messages = [{"role": "user", "content": query}]
+    # 如果有上下文，添加到系统消息中
     if context:
         messages.insert(0, {"role": "system", "content": context})
 
     result = llm_client.chat(messages)
 
+    # 标准化返回格式
     if isinstance(result, dict):
         if result.get('success') and 'content' in result:
             return {'success': True, 'response': result['content']}
@@ -274,6 +466,19 @@ def _llm_chat(config_manager, query: str, context: str = "") -> Dict[str, Any]:
 
 def _generate_recommendation(config_manager, user_query: str,
                              available_cities: List[str]) -> Dict[str, Any]:
+    """
+    生成城市推荐
+
+    根据用户需求和可用城市列表，使用 LLM 生成个性化推荐。
+
+    Args:
+        config_manager: 配置管理器
+        user_query: 用户原始需求描述
+        available_cities: 可选城市列表
+
+    Returns:
+        Dict: 推荐结果，包含推荐的城市列表和理由
+    """
     llm_config = config_manager.get_default_model_config()
     llm_client = LLMClient(llm_config)
     return llm_client.generate_travel_recommendation(user_query, "", available_cities)
@@ -281,6 +486,20 @@ def _generate_recommendation(config_manager, user_query: str,
 
 def _generate_route_plan(config_manager, city: str, days: int,
                          preferences: str = "") -> Dict[str, Any]:
+    """
+    生成详细路线计划
+
+    使用 LLM 根据城市景点信息生成详细的每日行程规划。
+
+    Args:
+        config_manager: 配置管理器
+        city: 目标城市
+        days: 旅行天数
+        preferences: 用户偏好描述
+
+    Returns:
+        Dict: 详细路线计划
+    """
     city_info = config_manager.get_city_info(city)
     if not city_info:
         return {'success': False, 'error': f'未找到城市: {city}'}
@@ -291,20 +510,61 @@ def _generate_route_plan(config_manager, city: str, days: int,
     return llm_client.generate_route_plan(city, days, attractions, preferences)
 
 
+# ==============================================================================
+# ReAct 旅游助手主类
+# ==============================================================================
+
 class ReActTravelAgent:
-    """ReAct 旅游助手 Agent"""
+    """
+    ReAct 旅游助手 Agent
+
+    该类是旅游助手的核心入口，协调以下组件工作：
+    1. ReActAgent: 负责推理和工具调用的循环
+    2. MemoryManager: 负责对话历史的存储和管理
+    3. LLMClient: 负责与大语言模型通信
+    4. ConfigManager: 负责配置信息的读取
+
+    处理流程：
+    1. 接收用户输入
+    2. 调用 ReActAgent 执行推理循环
+    3. 收集工具执行结果
+    4. 使用 LLM 生成最终回答
+    5. 返回结构化结果
+
+    Attributes:
+        config_manager: 配置管理器实例
+        memory_manager: 对话历史管理器
+        llm_client: LLM 客户端实例
+        react_agent: ReAct 智能体实例
+
+    Examples:
+        >>> agent = ReActTravelAgent(config_path="config/llm_config.yaml")
+        >>> result = await agent.process("北京三日游推荐")
+        >>> print(result["answer"])
+    """
 
     def __init__(self, config_path: str = "config/llm_config.yaml",
                  model_id: Optional[str] = None,
                  max_steps: int = 10):
+        """
+        初始化旅游助手
+
+        Args:
+            config_path: 配置文件路径
+            model_id: 使用的模型 ID，为 None 则使用默认模型
+            max_steps: ReAct 循环的最大执行步骤数
+        """
+        # 初始化配置管理器
         self.config_manager = ConfigManager(config_path)
 
+        # 初始化记忆管理器
+        # max_working_memory 控制短期工作记忆的大小
         memory_config = self.config_manager.agent_config.get('max_working_memory', 10)
         self.memory_manager = MemoryManager(
             max_working_memory=memory_config
         )
 
-        # Get model config using the new method
+        # 获取模型配置并初始化 LLM 客户端
         if model_id:
             llm_config = self.config_manager.get_model_config(model_id)
         else:
@@ -313,6 +573,7 @@ class ReActTravelAgent:
         self.llm_client = LLMClient(llm_config)
 
         # 传递 llm_client 给 ReActAgent，使其能使用 LLM 进行思考
+        # 这是 ReAct 模式的关键：让智能体能够自主思考和规划
         self.react_agent = ReActAgent(
             name="TravelReActAgent",
             max_steps=max_steps,
@@ -320,19 +581,33 @@ class ReActTravelAgent:
             llm_client=self.llm_client
         )
 
+        # 注册工具和回调
         self._register_tools()
         self._register_callbacks()
 
     def _register_tools(self) -> None:
+        """
+        注册旅游工具到 ReActAgent
+
+        将 create_travel_tools 创建的所有工具注册到 ReActAgent 的工具注册表中。
+        """
         tools = create_travel_tools(self.config_manager)
         for tool_info, executor in tools:
             self.react_agent.register_tool(tool_info, executor)
 
     def _register_callbacks(self) -> None:
+        """
+        注册事件回调函数
+
+        用于将 ReActAgent 的思考和行动事件同步到记忆管理器中，
+        以便维护完整的对话历史。
+        """
         def on_thought(thought: Thought):
+            """思考事件回调：将思考内容添加到记忆"""
             self.memory_manager.add_message('assistant', f"[思考] {thought.content}")
 
         def on_action(action: Action):
+            """行动事件回调：根据状态记录不同消息"""
             if action.status == ActionStatus.RUNNING:
                 self.memory_manager.add_message('assistant', f"[行动] 执行工具: {action.tool_name}")
             elif action.status == ActionStatus.SUCCESS:
@@ -344,29 +619,54 @@ class ReActTravelAgent:
         self.react_agent.add_action_callback(on_action)
 
     async def process(self, user_input: str) -> Dict[str, Any]:
-        """处理用户输入"""
+        """
+        处理用户输入（非流式版本）
+
+        这是主要的处理入口，接收用户输入，执行完整的 ReAct 循环，
+        并返回结构化的处理结果。
+
+        Args:
+            user_input: 用户的输入文本
+
+        Returns:
+            Dict: 处理结果，包含：
+            - success: 是否成功
+            - answer: 生成的回答
+            - reasoning: 推理过程信息
+            - history: 执行历史
+
+        Examples:
+            >>> result = await agent.process("云南旅游推荐")
+            >>> if result["success"]:
+            ...     print(result["answer"])
+        """
         import logging
         logger = logging.getLogger(__name__)
 
         logger.info(f"[Agent] 开始处理用户输入: {user_input[:50]}...")
 
         try:
+            # 1. 将用户输入添加到对话历史
             self.memory_manager.add_message('user', user_input)
 
+            # 2. 构建上下文信息
             context = {
                 'user_query': user_input,
                 'user_preference': self.memory_manager.get_user_preference()
             }
 
+            # 3. 执行 ReAct 推理循环
             result = await self.react_agent.run(user_input, context)
             logger.info(f"[Agent] ReAct 执行完成, success={result.get('success')}, steps={len(result.get('history', []))}")
 
             if result.get('success'):
+                # 4. 提取结果
                 history = result.get('history', [])
                 reasoning_text = self._build_reasoning_text(history)
                 answer = self._extract_answer(history)
                 logger.info(f"[Agent] 提取到答案: {answer[:100]}...")
 
+                # 5. 添加助手回答到历史
                 self.memory_manager.add_message('assistant', answer)
 
                 return {
@@ -396,17 +696,45 @@ class ReActTravelAgent:
             }
 
     def process_sync(self, user_input: str) -> Dict[str, Any]:
-        """同步处理用户输入（用于 gRPC 调用）"""
+        """
+        同步处理用户输入
+
+        用于 gRPC 调用等需要同步接口的场景。
+        内部通过 asyncio.run() 包装异步的 process 方法。
+
+        Args:
+            user_input: 用户输入文本
+
+        Returns:
+            Dict: 处理结果，同 process 方法的返回格式
+        """
         import asyncio
         return asyncio.run(self.process(user_input))
 
     async def process_stream(self, user_input: str, answer_callback=None, done_callback=None):
-        """流式处理用户输入，使用真正的token级别流式输出
+        """
+        流式处理用户输入
+
+        使用真正的 token 级别流式输出，提供更好的用户体验。
+        特点：
+        - 实时输出：每个 token 生成后立即通过回调发送
+        - 真正的流式：使用 LLM 客户端的 chat_stream 方法
+        - 回调机制：通过回调函数实现数据推送
 
         Args:
             user_input: 用户输入
-            answer_callback: 回答内容回调函数，接收 (token: str)
-            done_callback: 完成回调函数，接收 (result: Dict)
+            answer_callback: 回答内容回调函数，接收单个 token (str)
+            done_callback: 完成回调函数，接收最终结果 (Dict)
+
+        Returns:
+            Dict: 最终处理结果
+
+        Examples:
+            >>> async def on_token(token):
+            ...     print(token, end="", flush=True)
+            >>> async def on_done(result):
+            ...     print("\\n完成!")
+            >>> await agent.process_stream("北京旅游", answer_callback=on_token, done_callback=on_done)
         """
         import logging
         import time as time_module
@@ -416,6 +744,7 @@ class ReActTravelAgent:
         start_time = time_module.time()
 
         try:
+            # 添加用户输入到历史
             self.memory_manager.add_message('user', user_input)
 
             context = {
@@ -434,8 +763,7 @@ class ReActTravelAgent:
 
                 self.memory_manager.add_message('assistant', answer)
 
-                # 使用流式 LLM 调用生成答案，实现真正的 token 级别流式
-                # 构建消息
+                # 构建 LLM 消息
                 system_prompt = """你是一个专业的旅游助手。请根据用户的问题，提供详细、准确的旅游建议和规划。回答要简洁明了，条理清晰。"""
                 messages = [
                     {"role": "system", "content": system_prompt},
@@ -449,7 +777,7 @@ class ReActTravelAgent:
                     token_count = 0
                     accumulated_answer = ""
 
-                    # 流式遍历 LLM 响应
+                    # 遍历流式响应
                     for token in self.llm_client.chat_stream(messages, temperature=0.7):
                         token_count += 1
                         accumulated_answer += token
@@ -458,7 +786,7 @@ class ReActTravelAgent:
                         if answer_callback:
                             answer_callback(token)
 
-                        # 极短延迟，确保 token 独立发送
+                        # 短暂延迟，确保前端有足够时间处理
                         await asyncio.sleep(0.01)
 
                     answer = accumulated_answer
@@ -516,13 +844,25 @@ class ReActTravelAgent:
             return error_result
 
     def _split_into_chunks(self, text: str, chunk_size: int = 3) -> List[str]:
-        """将文本拆分成小块用于流式输出
+        """
+        将文本拆分成小块用于流式输出
+
+        当 LLM 不支持流式输出时，使用此方法进行模拟流式。
+        拆分策略：
+        1. 优先在标点符号处断开
+        2. 控制每块最大长度
+        3. 确保中英文都能正确处理
 
         Args:
             text: 输入文本
             chunk_size: 每个块的最大字符数（中文字符），默认3个
+
         Returns:
             文本块列表
+
+        Examples:
+            >>> chunks = agent._split_into_chunks("你好世界！再见。")
+            >>> print(chunks)  # ['你好', '世界', '！', '再见', '。']
         """
         if not text:
             return []
@@ -566,6 +906,17 @@ class ReActTravelAgent:
         return final_chunks if final_chunks else [text]
 
     def _build_reasoning_text(self, history: List[Dict]) -> str:
+        """
+        构建推理过程文本
+
+        将 ReAct 执行历史格式化为可读的推理过程描述。
+
+        Args:
+            history: ReAct 执行历史列表
+
+        Returns:
+            str: 格式化后的推理过程文本（Markdown 格式）
+        """
         if not history:
             return "<thinking>\n[Timestamp: {timestamp}]\n\n[Intent Analysis]\nNo reasoning history available.\n\n[Context Evaluation]\nNo context available.\n\n[Response Planning]\nUnable to generate response.\n\n[Constraint Check]\nNo constraints checked.\n</thinking>".format(
                 timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -576,6 +927,7 @@ class ReActTravelAgent:
         response_planning = []
         constraint_check = []
 
+        # 遍历历史，按类型分类
         for i, step in enumerate(history):
             thought = step.get('thought', {})
             action = step.get('action', {})
@@ -604,6 +956,7 @@ class ReActTravelAgent:
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        # 构建各部分内容
         intent_section = "[Intent Analysis]\n"
         if intent_analysis:
             intent_section += "\n".join(intent_analysis)
@@ -644,6 +997,17 @@ class ReActTravelAgent:
         return f"<thinking>\n{thinking_content}\n</thinking>"
 
     def _extract_tools_used(self, history: List[Dict]) -> List[str]:
+        """
+        提取使用的工具列表
+
+        从执行历史中收集所有被调用的工具名称。
+
+        Args:
+            history: 执行历史列表
+
+        Returns:
+            List[str]: 使用的工具名称列表（去重）
+        """
         tools = []
         for step in history:
             action = step.get('action', {})
@@ -653,7 +1017,20 @@ class ReActTravelAgent:
         return tools
 
     def _extract_answer(self, history: List[Dict]) -> str:
-        """提取最终回答，优先使用LLM生成活泼的回答"""
+        """
+        提取最终回答
+
+        从执行历史中提取最终的回答内容。
+        策略：
+        1. 收集所有成功的工具执行结果
+        2. 使用 LLM 生成活泼、结构化的回答
+
+        Args:
+            history: 执行历史列表
+
+        Returns:
+            str: 最终回答文本
+        """
         # 收集所有工具执行结果
         tool_results = []
         has_successful_tools = False
@@ -670,7 +1047,7 @@ class ReActTravelAgent:
                         'result': result
                     })
 
-        # 如果有工具执行结果，使用LLM生成活泼的回答
+        # 如果有工具执行结果，使用 LLM 生成活泼的回答
         if has_successful_tools:
             return self._generate_answer(history)
 
@@ -678,10 +1055,20 @@ class ReActTravelAgent:
         return '让我来帮你规划这次旅行吧！🎉'
 
     def _format_attractions_response(self, tool_result: Dict) -> str:
-        """Format attractions data into a readable response."""
+        """
+        格式化景点响应数据
+
+        将景点查询结果格式化为可读的文本。
+
+        Args:
+            tool_result: 工具返回的原始结果
+
+        Returns:
+            str: 格式化后的景点描述文本
+        """
         lines = []
 
-        # Handle both old format (cities key) and new format (data key)
+        # 兼容新旧两种数据格式
         if 'cities' in tool_result:
             data = tool_result['cities']
         elif 'data' in tool_result:
@@ -714,6 +1101,17 @@ class ReActTravelAgent:
         return '\n'.join(lines) if lines else "未找到相关景点信息"
 
     def _generate_answer(self, history: List[Dict]) -> str:
+        """
+        使用 LLM 生成最终回答
+
+        根据工具执行结果，让 LLM 生成结构化、活泼的回答。
+
+        Args:
+            history: 执行历史列表
+
+        Returns:
+            str: 生成的回答文本
+        """
         try:
             tool_results = []
             for step in history:
@@ -783,7 +1181,18 @@ class ReActTravelAgent:
             return f'生成回答失败：{str(e)}'
 
     def _parse_json_response(self, content: str) -> dict:
-        """解析LLM返回的JSON响应"""
+        """
+        解析 LLM 返回的 JSON 响应
+
+        LLM 有时会在 JSON 外面包裹 markdown 代码块或添加额外文本，
+        此函数负责提取纯 JSON 内容。
+
+        Args:
+            content: LLM 返回的原始内容
+
+        Returns:
+            dict: 解析后的 JSON 对象，解析失败返回 None
+        """
         import re
         try:
             # 首先尝试直接解析
@@ -791,7 +1200,7 @@ class ReActTravelAgent:
         except json.JSONDecodeError:
             pass
 
-        # 尝试提取JSON块（可能有 markdown 代码块包裹）
+        # 尝试提取 JSON 代码块
         json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
         if json_match:
             try:
@@ -810,7 +1219,17 @@ class ReActTravelAgent:
         return None
 
     def _format_travel_response(self, data: dict) -> str:
-        """将结构化数据格式化为规范的Markdown"""
+        """
+        格式化旅游响应
+
+        将 LLM 生成的 JSON 数据格式化为规范的 Markdown 文本。
+
+        Args:
+            data: 结构化数据字典
+
+        Returns:
+            str: 格式化后的 Markdown 文本
+        """
         lines = []
 
         # 开场白
@@ -842,7 +1261,7 @@ class ReActTravelAgent:
                     lines.append(f"   - {desc}")
                 lines.append('')
 
-            # 城市之间加空行（最后一个城市除外）
+            # 城市之间加空行
             if i < len(data.get('cities', [])) - 1:
                 lines.append('')
 
@@ -857,8 +1276,19 @@ class ReActTravelAgent:
         return '\n'.join(lines)
 
     def get_conversation_history(self) -> list:
+        """
+        获取对话历史
+
+        Returns:
+            list: 对话消息列表
+        """
         return self.memory_manager.get_conversation_history()
 
     def clear_conversation(self) -> None:
+        """
+        清除对话历史
+
+        清空记忆管理器和 ReActAgent 的状态，准备接受新会话。
+        """
         self.memory_manager.clear_conversation()
         self.react_agent.reset()
