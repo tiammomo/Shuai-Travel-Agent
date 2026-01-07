@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # ========================================
     llm_api_base: str = ""  # LLM API基础URL
     llm_api_key: str = ""  # LLM API密钥
-    llm_model: str = "gpt-4o-mini  # 默认模型
+    llm_model: str = "gpt-4o-mini"  # 默认模型
     llm_temperature: float = 0.7  # 生成温度 (0.0-1.0)
     llm_max_tokens: int = 2000  # 最大输出token数
 

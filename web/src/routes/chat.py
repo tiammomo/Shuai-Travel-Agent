@@ -325,23 +325,32 @@ async def generate_chat_stream(message: str, session_id: str, request: Request =
 
         logger.info(f"[Chat] 流式响应完成")
 
+    except StopIteration:
+        # gRPC 流正常结束（已处理 done）
+        logger.info("[Chat] 流迭代器正常结束")
     except grpc.RpcError as e:
-        logger.error(f"[Chat] gRPC 调用失败: {e}")
-        yield f"data: {json.dumps({'type': SSEEventType.REASONING_CHUNK, 'content': f'连接后端服务失败: {str(e)}'})}\n\n"
+        logger.error(f"[Chat] gRPC 调用失败: {e.code()} - {e.details()}")
+        yield f"data: {json.dumps({'type': SSEEventType.REASONING_CHUNK, 'content': f'连接后端服务失败: {e.code().name}'})}\n\n"
         yield f"data: {json.dumps({'type': SSEEventType.REASONING_END})}\n\n"
         yield f"data: {json.dumps({'type': SSEEventType.ANSWER_START})}\n\n"
         yield f"data: {json.dumps({'type': SSEEventType.CHUNK, 'content': '抱歉，连接后端服务失败，请稍后重试。'})}\n\n"
         yield f"data: {json.dumps({'type': SSEEventType.DONE})}\n\n"
     except asyncio.CancelledError:
         logger.info("[Chat] 请求被取消（客户端断开连接）")
-        raise
+    except (BrokenPipeError, ConnectionResetError, OSError) as e:
+        # 处理连接断开错误（客户端主动关闭或网络问题）
+        logger.warning(f"[Chat] 连接断开: {type(e).__name__} - {e}")
     except Exception as e:
-        logger.error(f"[Chat] 处理异常: {e}")
-        yield f"data: {json.dumps({'type': SSEEventType.REASONING_CHUNK, 'content': f'处理异常: {str(e)}'})}\n\n"
-        yield f"data: {json.dumps({'type': SSEEventType.REASONING_END})}\n\n"
-        yield f"data: {json.dumps({'type': SSEEventType.ANSWER_START})}\n\n"
-        yield f"data: {json.dumps({'type': SSEEventType.CHUNK, 'content': '抱歉，处理您的请求时出现异常。'})}\n\n"
-        yield f"data: {json.dumps({'type': SSEEventType.DONE})}\n\n"
+        logger.error(f"[Chat] 处理异常: {type(e).__name__} - {e}")
+        # 检查是否是客户端断开导致的异常
+        if "disconnected" in str(e).lower() or "closed" in str(e).lower():
+            logger.info("[Chat] 客户端已断开连接")
+        else:
+            yield f"data: {json.dumps({'type': SSEEventType.REASONING_CHUNK, 'content': f'处理异常: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': SSEEventType.REASONING_END})}\n\n"
+            yield f"data: {json.dumps({'type': SSEEventType.ANSWER_START})}\n\n"
+            yield f"data: {json.dumps({'type': SSEEventType.CHUNK, 'content': '抱歉，处理您的请求时出现异常。'})}\n\n"
+            yield f"data: {json.dumps({'type': SSEEventType.DONE})}\n\n"
 
 
 @router.post("/chat/stream")

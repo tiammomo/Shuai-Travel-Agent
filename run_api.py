@@ -24,7 +24,7 @@ FastAPI Web 服务器启动脚本 - ShuaiTravelAgent Web API Server
 
 输出示例:
     [*] Starting Web API Server...
-        Working directory: d:\...\web
+        Working directory: d:/.../web
 
     [INFO] Application startup complete
     [INFO] Uvicorn running on http://0.0.0.0:8000

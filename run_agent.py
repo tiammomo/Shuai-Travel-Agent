@@ -23,7 +23,7 @@ gRPC Agent 服务器启动脚本 - ShuaiTravelAgent Agent Service
 
 输出示例:
     [*] Starting Agent gRPC Service...
-       Config: d:\...\config\llm_config.yaml
+       Config: d:/.../config/llm_config.yaml
        Port: 50051
        Default Model: gpt-4o-mini
 
@@ -146,7 +146,7 @@ if __name__ == "__main__":
         # 4. 等待服务器运行
         # ==========================================================================
 
-        print("\n[✓] Agent gRPC 服务已启动，监听端口 " + str(port))
+        print("\n[OK] Agent gRPC 服务已启动，监听端口 " + str(port))
         print("   按 Ctrl+C 停止服务\n")
 
         # wait_for_termination() 阻塞主线程
@@ -157,7 +157,7 @@ if __name__ == "__main__":
         """
         配置文件未找到错误处理
         """
-        print("\n[X] 配置文件错误:\n" + str(e) + "\n")
+        print("\n[ERROR] 配置文件错误:\n" + str(e) + "\n")
         sys.exit(1)
 
     except Exception as e:
@@ -168,5 +168,5 @@ if __name__ == "__main__":
             - LLM API 调用失败
             - 内存不足
         """
-        print("\n[X] 启动错误: " + str(e) + "\n")
+        print("\n[ERROR] 启动错误: " + str(e) + "\n")
         sys.exit(1)

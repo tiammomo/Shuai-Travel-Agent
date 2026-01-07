@@ -26,7 +26,12 @@ gRPC服务定义:
 # 添加 agent 根目录到路径，这样可以使用绝对导入
 import sys
 import os
-AGENT_ROOT = os.path.dirname(os.path.dirname(__file__))  # agent/
+# 获取 agent/src 的父目录 (agent/)
+AGENT_ROOT = os.path.dirname(os.path.dirname(__file__))
+# 获取 agent/src 目录（包含 core 等模块）
+AGENT_SRC = os.path.dirname(__file__)
+if AGENT_SRC not in sys.path:
+    sys.path.insert(0, AGENT_SRC)
 if AGENT_ROOT not in sys.path:
     sys.path.insert(0, AGENT_ROOT)
 
@@ -44,7 +49,18 @@ from proto import agent_pb2, agent_pb2_grpc
 
 from core.travel_agent import ReActTravelAgent
 
-logging.basicConfig(level=logging.INFO)
+# 配置日志，使用 UTF-8 编码以支持中文
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stderr)
+    ]
+)
 logger = logging.getLogger(__name__)
 
 
@@ -500,7 +516,7 @@ class AgentServicer:
         return agent_pb2.HealthResponse(healthy=True, version="1.0.0", status="running")
 
 
-def serve(config_path: str = "config/config.json", port: int = 50051):
+def serve(config_path: str = "config/llm_config.yaml", port: int = 50051):
     """
     启动 gRPC 服务器
 
