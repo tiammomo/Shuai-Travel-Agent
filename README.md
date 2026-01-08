@@ -385,6 +385,25 @@ export function useChatStream() {
 
 ---
 
+## Proto 文件编译
+
+### 编译命令
+
+修改 `agent/proto/agent.proto` 后，需要重新编译生成 Python 代码：
+
+```bash
+cd d:\projects\shuai\ShuaiTravelAgent
+
+# 一键编译到所有位置
+python -m grpc_tools.protoc -I./agent/proto --python_out=./agent/proto --grpc_python_out=./agent/proto agent/proto/*.proto
+python -m grpc_tools.protoc -I./agent/proto --python_out=./agent/src --grpc_python_out=./agent/src agent/proto/*.proto
+python -m grpc_tools.protoc -I./agent/proto --python_out=./web/src --grpc_python_out=./web/src agent/proto/*.proto
+```
+
+详细说明请参阅 [agent/proto/README.md](agent/proto/README.md)
+
+---
+
 ## gRPC 服务定义
 
 ### 服务接口
