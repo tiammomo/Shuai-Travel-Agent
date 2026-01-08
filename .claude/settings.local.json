@@ -103,9 +103,9 @@
       "Bash(git tag:*)",
       "Bash(git push:*)",
       "Bash(git fetch:*)",
-      "Bash(notepad:*)",
-      "Bash(D:codesanaconda3envsagentsScriptspip.exe install grpcio grpcio-tools protobuf pydantic-settings)",
-      "Bash(tasklist:*)"
+      "Bash(git -C \"D:/projects/shuai/ShuaiTravelAgent\" add .claude/settings.local.json)",
+      "Bash(git -C \"D:/projects/shuai/ShuaiTravelAgent\" commit -m \"refactor: 更新聊天 API 支持对话模式参数\")",
+      "Bash(git -C \"D:/projects/shuai/ShuaiTravelAgent\" add:*)"
     ]
   }
 }
