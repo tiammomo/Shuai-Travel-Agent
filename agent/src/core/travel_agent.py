@@ -926,6 +926,7 @@ class ReActTravelAgent:
         构建推理过程文本
 
         将 ReAct 执行历史格式化为可读的推理过程描述。
+        支持阶段分层展示（理解 -> 规划 -> 执行 -> 生成）。
 
         Args:
             history: ReAct 执行历史列表
@@ -938,79 +939,84 @@ class ReActTravelAgent:
                 timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             )
 
-        intent_analysis = []
-        context_evaluation = []
-        response_planning = []
-        constraint_check = []
+        # 阶段名称映射（中文）
+        phase_names = {
+            'UNDERSTANDING': '阶段一：理解任务',
+            'PLANNING': '阶段二：制定计划',
+            'EXECUTION': '阶段三：执行工具',
+            'GENERATION': '阶段四：生成回答'
+        }
 
-        # 遍历历史，按类型分类
+        # 按阶段分类
+        phases_content = {phase: [] for phase in phase_names.keys()}
+
+        # 遍历历史，按阶段分类
         for i, step in enumerate(history):
             thought = step.get('thought', {})
             action = step.get('action', {})
 
+            thought_phase = step.get('phase', 'UNKNOWN')
             thought_type = thought.get('type', 'UNKNOWN')
             thought_content = thought.get('content', '')
             action_name = action.get('tool_name', '')
             action_status = action.get('status', 'PENDING')
             result = action.get('result', {})
 
+            # 构建步骤内容
+            step_content = f"\n【步骤 {i + 1}】"
+
             if thought_type == 'ANALYSIS':
-                if thought_content:
-                    intent_analysis.append(f"Step {i + 1}: {thought_content}")
+                step_content += "\n任务分析"
             elif thought_type == 'PLANNING':
-                if thought_content:
-                    response_planning.append(f"Step {i + 1}: {thought_content}")
+                step_content += "\n执行规划"
             elif thought_type == 'INFERENCE':
-                if thought_content:
-                    context_evaluation.append(f"Step {i + 1}: {thought_content}")
-                if action_name and action_name != 'none':
-                    status_str = 'SUCCESS' if action_status == 'SUCCESS' else 'FAILED' if action_status == 'FAILED' else 'RUNNING'
-                    context_evaluation.append(f"  - Tool: {action_name} [{status_str}]")
+                step_content += "\n执行推理"
             elif thought_type == 'REFLECTION':
-                if thought_content:
-                    constraint_check.append(f"Step {i + 1}: {thought_content}")
+                step_content += "\n结果反思"
+            elif thought_type == 'DECISION':
+                step_content += "\n最终决策"
+
+            if thought_content:
+                # 提取有意义的摘要（去除装饰性内容）
+                lines = thought_content.split('\n')
+                meaningful_lines = [l for l in lines if l.strip() and not l.strip().startswith('━') and not l.strip().startswith('【阶段')]
+                if meaningful_lines:
+                    step_content += "\n" + "\n".join(meaningful_lines[:5])
+
+            # 添加工具执行信息
+            if action_name and action_name != 'none':
+                status_str = '成功' if action_status == 'SUCCESS' else '失败' if action_status == 'FAILED' else '执行中'
+                step_content += f"\n工具: {action_name} [{status_str}]"
+
+            # 分配到对应阶段
+            if thought_phase in phases_content:
+                phases_content[thought_phase].append(step_content)
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tools_used = self._extract_tools_used(history)
 
-        # 构建各部分内容
-        intent_section = "[Intent Analysis]\n"
-        if intent_analysis:
-            intent_section += "\n".join(intent_analysis)
-        else:
-            intent_section += f"User query analysis based on {len(history)} reasoning steps.\n"
+        # 构建带阶段标记的推理文本
+        sections = []
 
-        context_section = "[Context Evaluation]\n"
-        if context_evaluation:
-            context_section += "\n".join(context_evaluation)
-        else:
-            context_section += "No explicit context evaluation steps recorded."
+        # 标题
+        sections.append(f"[Timestamp: {timestamp}]")
 
-        response_section = "[Response Planning]\n"
-        if response_planning:
-            response_section += "\n".join(response_planning)
-        else:
-            response_section += "Response generation based on tool execution results."
+        # 统计信息
+        sections.append(f"[执行统计]")
+        sections.append(f"- 总步骤数: {len(history)}")
+        sections.append(f"- 使用工具: {', '.join(tools_used) if tools_used else '无'}")
 
-        constraint_section = "[Constraint Check]\n"
-        if constraint_check:
-            constraint_section += "\n".join(constraint_check)
-        else:
-            constraint_section += "All constraints satisfied.\n"
-            constraint_section += f"- Total reasoning steps: {len(history)}\n"
-            constraint_section += f"- Tools executed: {len(self._extract_tools_used(history))}\n"
-            constraint_section += "- Response format: Standard text response"
+        # 按阶段输出
+        for phase_key, phase_name in phase_names.items():
+            content = phases_content.get(phase_key, [])
+            if content:
+                sections.append(f"\n{'=' * 40}")
+                sections.append(f"[{phase_name}]")
+                sections.append(''.join(content))
 
-        thinking_content = f"""[Timestamp: {timestamp}]
+        thinking_content = '\n'.join(sections)
 
-{intent_section}
-
-{context_section}
-
-{response_section}
-
-{constraint_section}"""
-
-        return f"<thinking>\n{thinking_content}\n</thinking>"
+        return f"<thinking>\n{thinking_content}\n{'=' * 40}\n</thinking>"
 
     def _extract_tools_used(self, history: List[Dict]) -> List[str]:
         """
@@ -1511,9 +1517,9 @@ class ReActTravelAgent:
 
         step_times = []
 
-        # Step 1: 生成执行计划
+        # Step 1: 生成执行计划（阶段一：制定计划）
         if thinking_callback:
-            thinking_callback("【规划模式】正在生成执行计划...\n\n", 0.0)
+            thinking_callback("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【规划模式 - 阶段一：制定计划】\n正在分析任务并生成执行计划...\n\n", 0.0)
 
         plan_start = asyncio.get_event_loop()
         plan_prompt = f"""用户请求: {user_input}
@@ -1525,10 +1531,12 @@ class ReActTravelAgent:
             "step": 1,
             "action": "工具名称",
             "params": {{"参数": "值"}},
-            "description": "步骤描述"
+            "description": "步骤描述",
+            "phase": "阶段标识 (planning/execution/generation)"
         }}
     ],
-    "estimated_time": "预计总时间"
+    "estimated_time": "预计总时间",
+    "goal": "本次规划的最终目标"
 }}"
 
 只返回 JSON，不要其他内容。"""
@@ -1546,17 +1554,16 @@ class ReActTravelAgent:
             }
 
         plan_content = plan_result.get('content', '{}')
+        plan_data = {}
         try:
-            # 尝试直接解析 JSON
             plan_data = json_util.loads(plan_content)
             logger.info(f"[Plan] 直接解析成功: {plan_data}")
         except json_util.JSONDecodeError:
-            # 如果解析失败，尝试提取 JSON
-            logger.warning(f"[Plan] 直接解析失败，尝试提取: {plan_content[:200]}...")
+            logger.warning(f"[Plan] 直接解析失败，尝试提取...")
             plan_data = self._extract_json_from_plan(plan_content)
-            logger.info(f"[Plan] 提取结果: {plan_data}")
 
         steps = plan_data.get('steps', [])
+        goal = plan_data.get('goal', '完成用户请求')
         if not steps:
             logger.warning(f"[Plan] steps 为空，原始内容: {plan_content[:500]}...")
             # 尝试更宽松的解析
@@ -1587,27 +1594,39 @@ class ReActTravelAgent:
                         steps = [{"action": s, "params": {}, "description": s} for i, s in enumerate(step_items)]
 
         step_elapsed = (asyncio.get_event_loop().time() - plan_start.time()) if hasattr(plan_start, 'time') else 0
-        step_times.append(("规划", step_elapsed))
+        step_times.append(("制定计划", step_elapsed))
 
         if thinking_callback:
-            thinking_callback(f"【规划模式】计划生成完成，共 {len(steps)} 个步骤\n\n", step_elapsed)
+            thinking_callback(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【规划模式】计划生成完成\n目标: {goal}\n共 {len(steps)} 个执行步骤\n\n", step_elapsed)
 
-        # Step 2: 执行计划
+        # Step 2: 执行计划（阶段二：逐步执行）
         history = []
         reasoning_text = "[规划模式执行]\n\n"
+
+        # 阶段标记
+        phases = {
+            'planning': '阶段二：分解任务',
+            'execution': '阶段三：执行工具',
+            'generation': '阶段四：生成回答'
+        }
 
         for i, step in enumerate(steps):
             step_num = i + 1
             action_name = step.get('action', '')
             params = step.get('params', {})
             description = step.get('description', '')
+            phase_key = step.get('phase', 'execution')
+            phase_name = phases.get(phase_key, '执行工具')
 
             step_start = asyncio.get_event_loop()
 
             if thinking_callback:
-                thinking_callback(f"【规划模式】执行步骤 {step_num}/{len(steps)}: {description}\n\n", 0.0)
+                progress = f"[{step_num}/{len(steps)}]"
+                thinking_callback(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【规划模式 - {phase_name}】\n{progress} {description}\n\n", 0.0)
 
-            reasoning_text += f"步骤 {step_num}: {description}\n"
+            reasoning_text += f"\n{'=' * 40}\n"
+            reasoning_text += f"步骤 {step_num} ({phase_name})\n"
+            reasoning_text += f"描述: {description}\n"
 
             # 查找并执行工具
             result = {'success': False}
@@ -1616,26 +1635,32 @@ class ReActTravelAgent:
                 if tool:
                     try:
                         result = await tool.execute(**params) if hasattr(tool, 'execute') else tool(params)
-                        reasoning_text += f"  - 执行: {action_name}\n"
-                        reasoning_text += f"  - 结果: {str(result)[:100]}...\n"
+                        status = "成功" if result.get('success') else "部分成功"
+                        reasoning_text += f"工具: {action_name} [{status}]\n"
+                        if result.get('success'):
+                            reasoning_text += f"结果: {str(result)[:100]}...\n"
                     except Exception as e:
-                        reasoning_text += f"  - 错误: {str(e)}\n"
+                        reasoning_text += f"错误: {str(e)}\n"
                         result = {'success': False, 'error': str(e)}
+                else:
+                    reasoning_text += f"工具未找到: {action_name}\n"
+                    result = {'success': False, 'error': f'Tool not found: {action_name}'}
 
             step_elapsed = (asyncio.get_event_loop().time() - step_start.time()) if hasattr(step_start, 'time') else 0
-            step_times.append((action_name, step_elapsed))
+            step_times.append((f"步骤{step_num}", step_elapsed))
 
             history.append({
                 'step': step_num,
+                'phase': phase_name,
                 'action': action_name,
                 'params': params,
                 'result': result,
                 'description': description
             })
 
-        # Step 3: 生成最终回答
+        # Step 3: 生成最终回答（阶段四：生成回答）
         if thinking_callback:
-            thinking_callback("【规划模式】正在生成最终回答...\n\n", 0.0)
+            thinking_callback("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【规划模式 - 阶段四：生成回答】\n正在整合执行结果...\n\n", 0.0)
 
         # 收集工具执行结果
         tool_results = [h.get('result', {}) for h in history if h.get('result', {}).get('success')]

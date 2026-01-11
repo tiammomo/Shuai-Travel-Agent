@@ -127,6 +127,24 @@ class ThoughtType(Enum):
     INFERENCE = auto()  # 推理型思考，用于从结果中得出结论
 
 
+class ThoughtPhase(Enum):
+    """
+    思考阶段枚举（高层级分层）
+
+    用于标记思考内容所属的处理阶段，支持步骤分层展示。
+
+    阶段层级：
+    - UNDERSTANDING: 理解阶段 - 解析用户意图和提取实体
+    - PLANNING: 规划阶段 - 制定执行计划
+    - EXECUTION: 执行阶段 - 工具调用和结果收集
+    - GENERATION: 生成阶段 - 生成最终回答
+    """
+    UNDERSTANDING = auto()  # 理解阶段：分析任务、提取实体
+    PLANNING = auto()       # 规划阶段：制定执行计划
+    EXECUTION = auto()      # 执行阶段：工具调用和结果观察
+    GENERATION = auto()     # 生成阶段：生成最终回答
+
+
 @dataclass
 class ToolInfo:
     """
@@ -235,6 +253,7 @@ class Thought:
     Attributes:
         id: 思考唯一标识
         type: 思考类型（分析、规划、决策、反思、推理）
+        phase: 思考阶段（理解、规划、执行、生成）- 用于分层展示
         content: 思考内容文本
         confidence: 置信度（0-1之间），越高表示越确定
         reasoning_chain: 推理链，记录推理过程
@@ -242,6 +261,7 @@ class Thought:
     """
     id: str                             # 思考标识
     type: ThoughtType                   # 思考类型
+    phase: ThoughtPhase = ThoughtPhase.UNDERSTANDING  # 思考阶段（分层用）
     content: str                        # 思考内容
     confidence: float = 0.8             # 置信度
     reasoning_chain: List[str] = field(default_factory=list)  # 推理链
@@ -511,24 +531,54 @@ class ThoughtEngine:
         self._thought_counter = 0
         self.llm_client = llm_client
 
-    def _create_thought(self, thought_type: ThoughtType, content: str) -> Thought:
+    def _create_thought(self, thought_type: ThoughtType, content: str,
+                        phase: ThoughtPhase = None) -> Thought:
         """
         创建思考对象
 
         Args:
             thought_type: 思考类型
             content: 思考内容
+            phase: 思考阶段（可选，自动推断）
 
         Returns:
             Thought: 新创建的思考对象
         """
         self._thought_counter += 1
+
+        # 自动推断阶段（如果未指定）
+        if phase is None:
+            phase = self._infer_phase(thought_type)
+
         return Thought(
             id=f"thought_{self._thought_counter}",
             type=thought_type,
+            phase=phase,
             content=content,
             confidence=0.85
         )
+
+    def _infer_phase(self, thought_type: ThoughtType) -> ThoughtPhase:
+        """
+        根据思考类型自动推断所属阶段
+
+        Args:
+            thought_type: 思考类型
+
+        Returns:
+            ThoughtPhase: 推断的阶段
+        """
+        if thought_type == ThoughtType.ANALYSIS:
+            return ThoughtPhase.UNDERSTANDING
+        elif thought_type == ThoughtType.PLANNING:
+            return ThoughtPhase.PLANNING
+        elif thought_type == ThoughtType.INFERENCE:
+            return ThoughtPhase.EXECUTION
+        elif thought_type == ThoughtType.REFLECTION:
+            return ThoughtPhase.EXECUTION
+        elif thought_type == ThoughtType.DECISION:
+            return ThoughtPhase.GENERATION
+        return ThoughtPhase.UNDERSTANDING
 
     def _extract_task_entities(self, task: str) -> Dict[str, Any]:
         """
@@ -1366,6 +1416,7 @@ class ReActAgent:
         思考阶段
 
         根据当前状态和观察结果，生成思考和行动计划。
+        根据步骤自动设置阶段（UNDERSTANDING -> PLANNING -> EXECUTION -> GENERATION）。
 
         Args:
             observation: 观察对象
@@ -1375,34 +1426,61 @@ class ReActAgent:
         """
         self.current_state = AgentState.REASONING
 
-        if self.state.current_step == 0:
-            # 第一步：分析任务并制定计划
+        # 根据当前步骤确定阶段
+        current_step = self.state.current_step
+        if current_step == 0:
+            # 步骤0：理解 + 规划阶段
+            phase = ThoughtPhase.UNDERSTANDING
+        elif current_step == 1:
+            # 步骤1：规划阶段
+            phase = ThoughtPhase.PLANNING
+        elif self._is_final_step():
+            # 最后步骤：生成阶段
+            phase = ThoughtPhase.GENERATION
+        else:
+            # 中间步骤：执行阶段
+            phase = ThoughtPhase.EXECUTION
+
+        if current_step == 0:
+            # 第一步：分析任务并制定计划（理解阶段）
             thought = self.thought_engine.analyze_task(
                 self.state.task,
                 self.state.context
             )
+            thought.phase = ThoughtPhase.UNDERSTANDING
 
-            # 始终生成执行计划
+            # 生成执行计划（规划阶段）
             plan_thought = self.thought_engine.plan_actions(
                 self.state.task,
                 self.tool_registry.list_tools()
             )
+            plan_thought.phase = ThoughtPhase.PLANNING
             thought.decision = plan_thought.decision
             thought.reasoning_chain.extend(plan_thought.reasoning_chain)
+
+            # 合并思考内容，标记分层
+            thought.content = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【阶段一：理解任务】
+{thought.content}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【阶段二：制定计划】
+{plan_thought.content}"""
+
         else:
             # 后续步骤：根据结果决定下一步
             last_action = self.action_history[-1] if self.action_history else None
 
             if last_action and last_action.status == ActionStatus.FAILED:
-                # 执行失败：反思并调整策略
+                # 执行失败：反思并调整策略（执行阶段）
                 thought = self.thought_engine.reflect(last_action.result or {})
-                thought.content = f"""【执行失败】步骤 {self.state.current_step}
-
+                thought.phase = ThoughtPhase.EXECUTION
+                thought.content = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【执行阶段 - 步骤 {current_step} 失败】
 【失败原因】{last_action.error}
 【当前状态】需要调整策略或检查参数
 【后续行动】尝试其他工具或重新执行"""
+
             elif last_action and last_action.status == ActionStatus.SUCCESS:
-                # 执行成功：分析结果，决定是否继续
                 result = last_action.result
                 tool_name = last_action.tool_name
 
@@ -1425,28 +1503,66 @@ class ReActAgent:
                 else:
                     result_info = f"执行结果：{str(result)[:80]}"
 
-                thought = self.thought_engine._create_thought(
-                    ThoughtType.INFERENCE,
-                    f"【执行成功】步骤 {self.state.current_step} 完成\n\n【工具】{tool_name}\n【结果】{result_info}"
-                )
+                # 检查是否是最后一步（生成回答）
+                if self._is_final_step():
+                    thought = self.thought_engine._create_thought(
+                        ThoughtType.INFERENCE,
+                        f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【生成阶段 - 最终回答】
+【工具】{tool_name}
+【结果】{result_info}
+
+正在生成最终回答...""",
+                        ThoughtPhase.GENERATION
+                    )
+                else:
+                    thought = self.thought_engine._create_thought(
+                        ThoughtType.INFERENCE,
+                        f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【执行阶段 - 步骤 {current_step} 完成】
+【工具】{tool_name}
+【结果】{result_info}
+
+评估是否需要继续执行或生成最终回答...""",
+                        ThoughtPhase.EXECUTION
+                    )
+
                 thought.reasoning_chain = [
-                    f"步骤 {self.state.current_step} 执行状态：成功",
+                    f"步骤 {current_step} 执行状态：{'成功' if last_action.status == ActionStatus.SUCCESS else '失败'}",
                     f"工具 {tool_name} 返回结果",
-                    f"评估是否需要继续执行或生成最终回答"
+                    f"{'准备生成最终回答' if self._is_final_step() else '评估是否需要继续执行'}"
                 ]
                 thought.confidence = 0.95
             else:
                 # 继续执行下一步
                 thought = self.thought_engine._create_thought(
                     ThoughtType.INFERENCE,
-                    f"【继续执行】步骤 {self.state.current_step + 1}\n\n根据执行计划，继续执行下一步操作"
+                    f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【执行阶段 - 步骤 {current_step + 1}】
+根据执行计划，继续执行下一步操作""",
+                    ThoughtPhase.EXECUTION
                 )
-                thought.reasoning_chain = [f"执行步骤 {self.state.current_step + 1}"]
+                thought.reasoning_chain = [f"执行步骤 {current_step + 1}"]
 
         self.thought_history.append(thought)
         self._notify_thought(thought)
 
         return thought
+
+    def _is_final_step(self) -> bool:
+        """
+        判断是否应该停止执行（用于确定是否进入生成阶段）
+
+        Returns:
+            bool: 是否应该停止
+        """
+        last_action = self.action_history[-1] if self.action_history else None
+        if last_action and last_action.tool_name in ["llm_chat", "generate_city_recommendation", "generate_route_plan"]:
+            if last_action.status == ActionStatus.SUCCESS:
+                return True
+        if self.state.current_step >= self.max_steps - 1:
+            return True
+        return False
 
     def _should_stop(self, thought: Thought) -> bool:
         """
@@ -1623,6 +1739,9 @@ class ReActAgent:
             action: 行动对象
             evaluation: 评估结果
         """
+        # 获取阶段名称
+        phase_name = thought.phase.name if thought.phase else "UNKNOWN"
+
         action_dict = {
             "id": action.id,
             "tool_name": action.tool_name,
@@ -1634,9 +1753,11 @@ class ReActAgent:
 
         self.state.history.append({
             "step": self.state.current_step,
+            "phase": phase_name,  # 添加阶段信息用于分层展示
             "thought": {
                 "id": thought.id,
                 "type": thought.type.name,
+                "phase": phase_name,
                 "content": thought.content,
                 "confidence": thought.confidence,
                 "decision": thought.decision

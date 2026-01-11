@@ -326,25 +326,67 @@ shared/
 
 ## 6. 配置说明
 
-### 6.1 config/config.json
+配置文件位于 `config/llm_config.yaml`，实际使用时需要复制 `llm_config.yaml.example` 为 `llm_config.yaml` 并填入 API Key。
 
-```json
-{
-  "agent_name": "TravelAssistantAgent",
-  "llm": {
-    "provider_type": "openai",
-    "api_base": "https://api.openai.com/v1",
-    "api_key": "YOUR_API_KEY",
-    "model": "gpt-4o-mini",
-    "temperature": 0.7,
-    "max_tokens": 2000
-  },
-  "web": {
-    "host": "0.0.0.0",
-    "port": 8000,
-    "debug": true
-  }
-}
+### 6.1 配置文件 (config/llm_config.yaml)
+
+```yaml
+# 默认使用的模型ID
+default_model: gpt-4o-mini
+
+# 模型配置列表
+models:
+  gpt-4o-mini:
+    name: "GPT-4o Mini"
+    provider: openai
+    model: "gpt-4o-mini"
+    api_base: "https://api.openai.com/v1"
+    api_key: "sk-YOUR_OPENAI_API_KEY"
+    temperature: 0.7
+    max_tokens: 2000
+    timeout: 30
+    max_retries: 3
+
+  claude-3-5-sonnet:
+    name: "Claude 3.5 Sonnet"
+    provider: anthropic
+    model: "claude-sonnet-4-20250514"
+    api_base: "https://api.anthropic.com/v1"
+    api_key: "sk-ant-YOUR_ANTHROPIC_API_KEY"
+    temperature: 0.7
+    max_tokens: 2000
+    timeout: 60
+    max_retries: 3
+
+  ollama-llama3:
+    name: "Llama 3 (Ollama)"
+    provider: openai-compatible
+    model: "llama3"
+    api_base: "http://localhost:11434/v1"
+    api_key: ""
+    temperature: 0.7
+    max_tokens: 2000
+    timeout: 120
+    max_retries: 2
+
+# Agent 配置
+agent:
+  name: "TravelAssistantAgent"
+  max_steps: 10
+  max_reasoning_depth: 5
+  max_working_memory: 10
+  max_long_term_memory: 50
+
+# Web 服务配置
+web:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+
+# gRPC 服务配置
+grpc:
+  host: "0.0.0.0"
+  port: 50051
 ```
 
 ### 6.2 前端环境变量
@@ -353,6 +395,16 @@ shared/
 # frontend/.env.local
 NEXT_PUBLIC_API_BASE=http://localhost:8000
 ```
+
+### 6.3 支持的 Provider 类型
+
+| Provider | 说明 | 示例 |
+|----------|------|------|
+| openai | OpenAI GPT 系列 | GPT-4o, GPT-4o-mini |
+| anthropic | Anthropic Claude 系列 | Claude 3.5 Sonnet |
+| google | Google Gemini 系列 | Gemini 1.5 Pro |
+| ollama | Ollama 本地模型 | Llama 3, Qwen |
+| openai-compatible | 兼容 OpenAI API 的自定义服务 | LM Studio, API聚合平台 |
 
 ---
 
