@@ -105,7 +105,9 @@
       "Bash(git fetch:*)",
       "Bash(git -C \"D:/projects/shuai/ShuaiTravelAgent\" add .claude/settings.local.json)",
       "Bash(git -C \"D:/projects/shuai/ShuaiTravelAgent\" commit -m \"refactor: 更新聊天 API 支持对话模式参数\")",
-      "Bash(git -C \"D:/projects/shuai/ShuaiTravelAgent\" add:*)"
+      "Bash(git -C \"D:/projects/shuai/ShuaiTravelAgent\" add:*)",
+      "Bash(tree:*)",
+      "Bash(ren:*)"
     ]
   }
 }
