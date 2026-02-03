@@ -18,7 +18,7 @@
           ┌───────────┴───────────┐
           ▼                       ▼
 ┌─────────────────┐     ┌─────────────────┐
-│  Next.js (3000) │     │  FastAPI (8000) │
+│ Next.js (43001) │     │ FastAPI (48081) │
 │    前端服务      │     │    API 服务     │
 └─────────────────┘     └────────┬────────┘
                                  │
@@ -85,7 +85,7 @@ AGENT_PORT=50051
 
 # Web 配置
 WEB_HOST=0.0.0.0
-WEB_PORT=8000
+WEB_PORT=48081
 
 # 前端配置
 NEXT_PUBLIC_API_BASE=https://api.your-domain.com
@@ -137,7 +137,7 @@ services:
       context: ./web
       dockerfile: Dockerfile.web
     ports:
-      - "8000:8000"
+      - "48081:48081"
     environment:
       - AGENT_GRPC_HOST=agent
       - AGENT_GRPC_PORT=50051
@@ -147,7 +147,7 @@ services:
       - agent
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:48081/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -157,7 +157,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.frontend
     ports:
-      - "3000:3000"
+      - "43001:3000"
     environment:
       - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
     depends_on:
@@ -206,7 +206,7 @@ RUN pip install --no-cache-dir -r requirements-web.txt
 
 COPY src/ ./src/
 
-EXPOSE 8000
+EXPOSE 48081
 
 CMD ["python", "-m", "src.main", "--port", "8000"]
 ```
@@ -271,7 +271,7 @@ export AGENT_GRPC_HOST=localhost
 export AGENT_GRPC_PORT=50051
 
 # 启动服务
-python -m src.main --port 8000
+python -m src.main --port 48081
 ```
 
 ### 3.3 部署前端
@@ -304,7 +304,7 @@ server {
     }
 
     location /api {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://localhost:48081;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -412,7 +412,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/api.your-domain.com/privkey.pem;
 
     location / {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://localhost:48081;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -460,7 +460,7 @@ scrape_configs:
 
 ```bash
 # 检查所有服务
-curl http://localhost:8000/health
+curl http://localhost:48081/health
 curl http://localhost:50051/health
 
 # 检查容器状态

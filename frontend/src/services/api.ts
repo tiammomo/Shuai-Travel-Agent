@@ -8,6 +8,7 @@ import {
   SetModelResponse,
   GetSessionModelResponse
 } from '@/types';
+import { logger } from '@/utils/logger';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
 const API_PREFIX = `${API_BASE}/api`;
@@ -200,7 +201,7 @@ class APIService {
     if (attempt > 1) {
       this.connectionStatus = SSEConnectionStatus.RECONNECTING;
       callbacks.onConnectionChange?.(this.connectionStatus);
-      console.log(`[API] 第 ${attempt - 1} 次重连尝试...`);
+      logger.info(`第 ${attempt - 1} 次重连尝试...`);
     } else {
       this.connectionStatus = SSEConnectionStatus.CONNECTING;
       callbacks.onConnectionChange?.(this.connectionStatus);
@@ -209,7 +210,7 @@ class APIService {
     // 设置超时控制器（180秒超时，需大于后端120秒超时）
     const timeoutId = setTimeout(() => {
       controller.abort();
-      console.warn('[API] 请求超时，已自动取消');
+      logger.warn('请求超时，已自动取消');
     }, 180000);
 
     try {
@@ -248,7 +249,7 @@ class APIService {
       while (true) {
         // 检查是否需要停止
         if (controller.signal.aborted) {
-          console.log('[API] 请求已被取消');
+          logger.debug('请求已被取消');
           break;
         }
         if (callbacks.onStop && callbacks.onStop()) {
@@ -341,12 +342,12 @@ class APIService {
 
       // 检查是否为取消操作
       if (controller.signal.aborted) {
-        console.log('[API] 请求已被用户取消');
+        logger.debug('请求已被用户取消');
         this.connectionStatus = SSEConnectionStatus.DISCONNECTED;
         return;
       }
 
-      console.error(`[API] 网络错误 (尝试 ${attempt}/${this.maxReconnectAttempts}):`, error);
+      logger.error(`网络错误 (尝试 ${attempt}/${this.maxReconnectAttempts}):`, error);
 
       // 尝试重连
       if (attempt < this.maxReconnectAttempts) {
@@ -354,7 +355,7 @@ class APIService {
         callbacks.onConnectionChange?.(this.connectionStatus);
 
         const delay = this.getReconnectDelay(attempt);
-        console.log(`[API] ${delay}ms 后进行第 ${attempt + 1} 次重连...`);
+        logger.info(`${delay}ms 后进行第 ${attempt + 1} 次重连...`);
 
         await new Promise(resolve => setTimeout(resolve, delay));
         return this._executeStreamRequest(request, callbacks, controller, requestKey, attempt + 1);

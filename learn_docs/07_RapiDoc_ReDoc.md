@@ -1826,7 +1826,7 @@ await fastify.register(require('@fastify/swagger'), {
             title: '用户管理系统 API',
             version: '1.0.0'
         },
-        servers: [{ url: `http://localhost:3000` }]
+        servers: [{ url: `http://localhost:43001` }]
     }
 });
 
@@ -3297,10 +3297,10 @@ async def redoc_page():
 
 | 环境 | 地址 | 说明 |
 |------|------|------|
-| 开发环境 | http://localhost:8000/docs | 文档选择页面 |
-| 开发环境 | http://localhost:8000/rapidoc | RapiDoc（含在线测试） |
-| 所有环境 | http://localhost:8000/redoc | ReDoc（纯展示） |
-| 所有环境 | http://localhost:8000/openapi.json | OpenAPI JSON 规范 |
+| 开发环境 | http://localhost:48081/docs | 文档选择页面 |
+| 开发环境 | http://localhost:48081/rapidoc | RapiDoc（含在线测试） |
+| 所有环境 | http://localhost:48081/redoc | ReDoc（纯展示） |
+| 所有环境 | http://localhost:48081/openapi.json | OpenAPI JSON 规范 |
 
 ### 9.5 环境变量配置
 
@@ -3311,7 +3311,7 @@ async def redoc_page():
 ENVIRONMENT=dev   # dev: 允许访问 RapiDoc | prod: 仅 ReDoc
 
 # CORS 配置
-CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+CORS_ORIGINS=http://localhost:43001,http://localhost:48081
 ```
 
 ### 9.6 API 端点
@@ -3396,8 +3396,8 @@ python run_api.py
 
 ```bash
 # 检查服务状态
-curl http://localhost:8000/api/health
+curl http://localhost:48081/api/health
 
 # 检查 OpenAPI 规范
-curl http://localhost:8000/openapi.json | jq '.info'
+curl http://localhost:48081/openapi.json | jq '.info'
 ```

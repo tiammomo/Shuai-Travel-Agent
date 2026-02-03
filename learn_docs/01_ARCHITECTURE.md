@@ -14,19 +14,19 @@
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        前端层 (Frontend Layer)                      │
-│                      Next.js 15 (独立部署)                          │
+│                      Next.js 16 (独立部署)                          │
 │                                                                      │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────────┐ │
 │  │   状态管理   │  │   UI组件    │  │      API 服务               │ │
-│  │   Zustand   │  │  Ant Design │  │      axios                  │ │
+│  │   Zustand   │  │  Ant Design │  │      axios / fetch          │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
                                    │
-                                   │ HTTPS
+                                   │ HTTPS + SSE
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                       Web层 (API Gateway)                           │
-│                      FastAPI (端口 8000)                            │
+│                      FastAPI (端口 48081)                           │
 │                                                                      │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────────┐ │
 │  │  REST API   │  │   SSE流     │  │     gRPC Client             │ │
@@ -50,7 +50,7 @@
 │  │   └──────────┘  └──────────┘  └──────────┘  └──────────┘       │  │
 │  │                                                               │  │
 │  │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │  │
-│  │   │  Memory  │  │   LLM    │  │   Tool   │  │ Config   │    │  │
+│  │   │  Memory  │  │   LLM    │  │   Tool   │  │  Model   │    │  │
 │  │   │ Manager  │──│  Client  │──│ Registry │──│ Manager  │    │  │
 │  │   └──────────┘  └──────────┘  └──────────┘  └──────────┘    │  │
 │  └───────────────────────────────────────────────────────────────┘  │
@@ -92,7 +92,7 @@ service AgentService {
 
 **职责**: API接口、路由管理、请求处理
 
-**端口**: 8000 (HTTP)
+**端口**: 48081 (HTTP)
 
 **核心组件**:
 
@@ -124,12 +124,12 @@ GET  /api/cities              # 城市列表
 
 **技术栈**:
 
-- Next.js 15 (App Router)
+- Next.js 16 (App Router)
 - React 19
 - TypeScript
 - Zustand (状态管理)
-- Ant Design 5 (UI组件)
-- Vitest (测试)
+- Ant Design 6 (UI组件)
+- SSE 流式处理
 
 **核心组件**:
 
@@ -237,6 +237,7 @@ GET  /api/cities              # 城市列表
 ```
 OpenAI Compatible API
     │
+    ├── MiniMax M2.1 (Anthropic 兼容 API) ✨ 默认
     ├── OpenAI (gpt-4, gpt-4o, gpt-4o-mini)
     ├── Anthropic Claude (claude-3-sonnet, claude-3-opus)
     ├── Google Gemini (gemini-1.5-pro, gemini-1.5-flash)
@@ -332,10 +333,22 @@ shared/
 
 ```yaml
 # 默认使用的模型ID
-default_model: gpt-4o-mini
+default_model: minimax-m2-1
 
 # 模型配置列表
 models:
+  minimax-m2-1:
+    name: "MiniMax M2.1"
+    provider: anthropic
+    model: "MiniMax-M2.1"
+    api_base: "https://api.minimax.chat/v1/chat/completions"
+    api_key: "sk-YOUR_MINIMAX_API_KEY"
+    api_version: "2024-05-01"
+    temperature: 0.7
+    max_tokens: 4096
+    timeout: 60
+    max_retries: 3
+
   gpt-4o-mini:
     name: "GPT-4o Mini"
     provider: openai
@@ -353,6 +366,7 @@ models:
     model: "claude-sonnet-4-20250514"
     api_base: "https://api.anthropic.com/v1"
     api_key: "sk-ant-YOUR_ANTHROPIC_API_KEY"
+    api_version: "2023-06-01"
     temperature: 0.7
     max_tokens: 2000
     timeout: 60
@@ -380,7 +394,7 @@ agent:
 # Web 服务配置
 web:
   host: "0.0.0.0"
-  port: 8000
+  port: 48081
   debug: true
 
 # gRPC 服务配置
@@ -393,7 +407,7 @@ grpc:
 
 ```bash
 # frontend/.env.local
-NEXT_PUBLIC_API_BASE=http://localhost:8000
+NEXT_PUBLIC_API_BASE=http://localhost:48081
 ```
 
 ### 6.3 支持的 Provider 类型

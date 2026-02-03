@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
     # CORS 中间件配置
     # =========================================================================
     # 生产环境应该限制为实际的前端域名
-    allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+    allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:43001,http://127.0.0.1:43001,http://localhost:48081,http://127.0.0.1:48081").split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,

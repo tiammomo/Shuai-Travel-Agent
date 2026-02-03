@@ -67,7 +67,16 @@ class ConfigManager:
         """
         # 如果有 agent 的 ConfigManager，使用它
         if _config_manager_class is not None:
-            self._delegate = _config_manager_class(config_path)
+            # 将相对路径转换为绝对路径，确保 agent ConfigManager 能正确找到配置文件
+            if not os.path.isabs(config_path):
+                # 基于项目根目录计算绝对路径
+                # __file__ = web/src/config/config_manager.py
+                # 需要向上找4层: src -> config -> src -> web -> 项目根目录
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                abs_config_path = os.path.join(project_root, config_path)
+            else:
+                abs_config_path = config_path
+            self._delegate = _config_manager_class(abs_config_path)
             # 复制所有属性
             self.config_path = self._delegate.config_path
             self.config = self._delegate.config
@@ -209,3 +218,23 @@ class ConfigManager:
     def grpc_config(self) -> Dict[str, Any]:
         """获取 gRPC 服务配置"""
         return self.config.get('grpc', {})
+
+
+# 全局配置管理器实例
+_config_manager: Optional[ConfigManager] = None
+
+
+def get_config(config_path: str = "config/llm_config.yaml") -> ConfigManager:
+    """
+    获取配置管理器单例
+
+    Args:
+        config_path: 配置文件路径
+
+    Returns:
+        ConfigManager 实例
+    """
+    global _config_manager
+    if _config_manager is None:
+        _config_manager = ConfigManager(config_path)
+    return _config_manager

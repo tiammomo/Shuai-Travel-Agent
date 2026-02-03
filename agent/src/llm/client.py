@@ -138,7 +138,26 @@ class LLMProtocolAdapter(ABC):
     def chat(self, messages: List[Dict[str, str]],
              temperature: Optional[float] = None,
              max_tokens: Optional[int] = None) -> Dict[str, Any]:
-        payload = self._build_request_payload(messages, temperature, max_tokens, stream=False)
+        # 验证消息列表
+        if not messages or len(messages) == 0:
+            logger.error("消息列表为空")
+            return {"success": False, "error": "消息列表不能为空"}
+
+        # 过滤掉空消息
+        valid_messages = []
+        for msg in messages:
+            content = msg.get('content', '')
+            if content and isinstance(content, str) and content.strip():
+                valid_messages.append(msg)
+            elif msg.get('role') == 'system':
+                # system 消息即使为空也保留
+                valid_messages.append(msg)
+
+        if not valid_messages:
+            logger.error("没有有效的消息内容")
+            return {"success": False, "error": "消息内容不能为空"}
+
+        payload = self._build_request_payload(valid_messages, temperature, max_tokens, stream=False)
         headers = self._build_request_headers()
         endpoint = self._get_chat_endpoint()
 
@@ -159,12 +178,12 @@ class LLMProtocolAdapter(ABC):
                     }
 
             except urllib.error.HTTPError as e:
-                error_msg = e.read().decode('utf-8')
-                logger.warning(f"HTTP error (attempt {attempt + 1}/{self.max_retries}): {e.code}")
+                error_body = e.read().decode('utf-8')
+                logger.warning(f"HTTP error (attempt {attempt + 1}/{self.max_retries}): {e.code} - {error_body}")
                 if attempt < self.max_retries - 1:
                     time.sleep(2 ** attempt)
                 else:
-                    return {"success": False, "error": f"HTTP {e.code}: {error_msg}"}
+                    return {"success": False, "error": f"HTTP {e.code}: {error_body}"}
 
             except urllib.error.URLError as e:
                 logger.warning(f"Network error (attempt {attempt + 1}/{self.max_retries}): {str(e.reason)}")
@@ -238,7 +257,8 @@ class AnthropicAdapter(LLMProtocolAdapter):
     def _init_protocol_specific(self, config: Dict[str, Any]):
         if not self.api_base:
             self.api_base = "https://api.anthropic.com/v1"
-        self.api_version = config.get('api_version', '2023-06-01')
+        # MiniMax API 使用较新的 API 版本
+        self.api_version = config.get('api_version', '2024-01-04')
 
     def _build_request_payload(self, messages: List[Dict[str, str]],
                                temperature: Optional[float] = None,
@@ -274,23 +294,115 @@ class AnthropicAdapter(LLMProtocolAdapter):
         return f"{self.api_base.rstrip('/')}/messages"
 
     def _parse_stream_chunk(self, line: str) -> Optional[str]:
+        # SSE 格式: event: <type> 和 data: <json> 分开
         if not line.startswith('data: '):
             return None
         data_str = line[6:].strip()
         try:
             chunk = json.loads(data_str)
-            if chunk.get('type') == 'content_block_delta':
+            event_type = chunk.get('type', '')
+
+            # 处理 text_delta
+            if event_type == 'content_block_delta':
                 delta = chunk.get('delta', {})
                 if delta.get('type') == 'text_delta':
                     return delta.get('text', '')
+
+            # 处理 thinking_delta
+            if event_type == 'content_block_delta':
+                delta = chunk.get('delta', {})
+                if delta.get('type') == 'thinking_delta':
+                    return delta.get('thinking', '')
         except json.JSONDecodeError:
             pass
         return None
 
+    def chat_stream(self, messages: List[Dict[str, str]],
+                    temperature: Optional[float] = None,
+                    max_tokens: Optional[int] = None) -> Iterator[str]:
+        """流式聊天 - 支持 SSE 格式"""
+        payload = self._build_request_payload(messages, temperature, max_tokens, stream=True)
+        headers = self._build_request_headers()
+        endpoint = self._get_chat_endpoint()
+
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(endpoint, data=data, headers=headers, method='POST')
+
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                current_event_data = ""
+
+                for line in response:
+                    line = line.decode('utf-8').strip()
+
+                    # 空行分隔事件
+                    if not line:
+                        if current_event_data:
+                            content = self._parse_stream_chunk(current_event_data)
+                            if content:
+                                yield content
+                            current_event_data = ""
+                        continue
+
+                    # SSE 格式解析
+                    if line.startswith('data: '):
+                        current_event_data = line
+                    elif line.startswith('event: '):
+                        # 如果有之前的事件数据，先处理它
+                        if current_event_data:
+                            content = self._parse_stream_chunk(current_event_data)
+                            if content:
+                                yield content
+                            current_event_data = ""
+                        # 开始新的事件
+                        current_event_data = line  # 保留 event 行用于调试
+
+        except urllib.error.HTTPError as e:
+            error_msg = e.read().decode('utf-8')
+            yield f"\n\n[错误: HTTP {e.code} - {error_msg}]\n"
+        except urllib.error.URLError as e:
+            yield f"\n\n[错误: 网络连接失败 - {str(e.reason)}]\n"
+        except Exception as e:
+            yield f"\n\n[错误: {str(e)}]\n"
+
     def _parse_response(self, response_data: Dict[str, Any]) -> str:
+        # 记录原始响应用于调试
+        logger.debug(f"AnthropicAdapter 原始响应: {response_data}")
+
+        # 获取 content blocks
         content_blocks = response_data.get('content', [])
-        text_content = [block.get('text', '') for block in content_blocks if block.get('type') == 'text']
-        return ''.join(text_content)
+        if not content_blocks:
+            # 尝试从其他字段获取内容
+            if 'text' in response_data:
+                return response_data.get('text', '')
+            if 'message' in response_data:
+                return response_data.get('message', {}).get('content', '')
+            logger.warning("响应中没有 content 字段")
+            return ''
+
+        result_parts = []
+
+        for block in content_blocks:
+            if not isinstance(block, dict):
+                continue
+
+            block_type = block.get('type', '')
+            if block_type == 'text':
+                text_content = block.get('text', '')
+                if text_content:
+                    result_parts.append(text_content)
+            elif block_type == 'thinking':
+                # 包含 thinking 内容
+                thinking = block.get('thinking', '')
+                if thinking:
+                    result_parts.append(f"[思考: {thinking}]")
+
+        result = ''.join(result_parts)
+
+        if not result:
+            logger.warning(f"解析后的内容为空，原始响应: {response_data}")
+
+        return result
 
 
 class GoogleAdapter(LLMProtocolAdapter):

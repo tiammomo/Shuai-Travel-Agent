@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { ModelInfo } from '@/types';
 import { apiService } from '@/services/api';
+import { logger } from '@/utils/logger';
 
 interface ConfigState {
   // API 配置
@@ -81,7 +82,7 @@ export const useConfigStore = create<ConfigState>()(
             try {
               await apiService.setSessionModel(currentSessionId, modelId);
             } catch (error) {
-              console.error('设置会话模型失败:', error);
+              logger.error('设置会话模型失败:', error);
             }
           }
         },

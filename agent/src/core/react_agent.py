@@ -261,8 +261,8 @@ class Thought:
     """
     id: str                             # 思考标识
     type: ThoughtType                   # 思考类型
-    phase: ThoughtPhase = ThoughtPhase.UNDERSTANDING  # 思考阶段（分层用）
     content: str                        # 思考内容
+    phase: ThoughtPhase = ThoughtPhase.UNDERSTANDING  # 思考阶段（分层用）
     confidence: float = 0.8             # 置信度
     reasoning_chain: List[str] = field(default_factory=list)  # 推理链
     decision: Optional[str] = None      # 决策/行动计划

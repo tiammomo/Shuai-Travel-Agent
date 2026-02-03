@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Message, AppConfig, ModelInfo, SessionInfo, ChatMode } from '@/types';
 import { apiService } from '@/services/api';
+import { logger } from '@/utils/logger';
 
 interface AppState {
   // 配置
@@ -73,30 +74,62 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
       setSessions(activeSessions);
     } catch (error) {
-      console.error('加载会话失败:', error);
+      logger.error('加载会话失败:', error);
     }
   };
 
   // 加载可用模型列表
   useEffect(() => {
     const loadModels = async () => {
+      // 超时控制：10秒后强制结束加载
+      const TIMEOUT = 10000;
+      let loaded = false;
+
+      const setLoaded = () => { loaded = true; };
+
+      const timeoutId = setTimeout(() => {
+        if (!loaded) {
+          logger.warn('模型列表加载超时，使用默认模型');
+          setAvailableModels([{
+            model_id: 'minimax-m2-1',
+            name: 'MiniMax M2.1',
+            provider: 'anthropic',
+            model: 'MiniMax-M2.1'
+          }]);
+          setCurrentModelIdState('minimax-m2-1');
+          setLoadingModels(false);
+        }
+      }, TIMEOUT);
+
       try {
         setLoadingModels(true);
         const data = await apiService.getAvailableModels();
         if (data.success && data.models.length > 0) {
           setAvailableModels(data.models);
           setCurrentModelIdState(data.models[0].model_id);
+        } else {
+          // API 返回空列表，使用默认模型
+          setAvailableModels([{
+            model_id: 'minimax-m2-1',
+            name: 'MiniMax M2.1',
+            provider: 'anthropic',
+            model: 'MiniMax-M2.1'
+          }]);
+          setCurrentModelIdState('minimax-m2-1');
         }
       } catch (error) {
-        console.error('加载模型列表失败:', error);
+        logger.error('加载模型列表失败:', error);
+        // 使用默认模型作为降级
         setAvailableModels([{
-          model_id: 'gpt-4o-mini',
-          name: 'OpenAI GPT-4o Mini',
-          provider: 'openai',
-          model: 'gpt-4o-mini'
+          model_id: 'minimax-m2-1',
+          name: 'MiniMax M2.1',
+          provider: 'anthropic',
+          model: 'MiniMax-M2.1'
         }]);
-        setCurrentModelIdState('gpt-4o-mini');
+        setCurrentModelIdState('minimax-m2-1');
       } finally {
+        loaded = true;
+        clearTimeout(timeoutId);
         setLoadingModels(false);
       }
     };
@@ -115,7 +148,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       try {
         await apiService.setSessionModel(currentSessionId, modelId);
       } catch (error) {
-        console.error('设置会话模型失败:', error);
+        logger.error('设置会话模型失败:', error);
       }
     }
   };
@@ -203,7 +236,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setCurrentModelIdState(data.model_id);
         }
       } catch (error) {
-        console.error('获取会话模型失败:', error);
+        logger.error('获取会话模型失败:', error);
       }
     }
   };

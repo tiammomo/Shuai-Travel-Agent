@@ -62,6 +62,7 @@ import os
 
 from ..services.chat_service import ChatService
 from ..dependencies.container import get_container
+from ..config.config_manager import get_config
 
 router = APIRouter()
 
@@ -248,8 +249,11 @@ async def generate_chat_stream(message: str, session_id: str, mode: str = "react
     # 发送session_id事件
     yield f"data: {json.dumps({'type': SSEEventType.SESSION_ID, 'session_id': session_id})}\n\n"
 
-    # 请求超时控制器
-    timeout_seconds = 120
+    # 从配置获取聊天参数
+    config = get_config()
+    chat_config = config.get('chat', {}) if isinstance(config, dict) else {}
+    timeout_seconds = chat_config.get('timeout', 120)
+    chunk_delay = chat_config.get('chunk_delay', 0.01)
     task = None
 
     try:
@@ -301,19 +305,19 @@ async def generate_chat_stream(message: str, session_id: str, mode: str = "react
             # 根据chunk类型转换为SSE事件
             if chunk_type == "thinking_start":
                 yield f"data: {json.dumps({'type': SSEEventType.REASONING_START})}\n\n"
-                await asyncio.sleep(0.01)  # 10ms 延迟确保数据分开发送
+                await asyncio.sleep(chunk_delay)  # 延迟确保数据分开发送
             elif chunk_type == "thinking_chunk":
                 yield f"data: {json.dumps({'type': SSEEventType.REASONING_CHUNK, 'content': content})}\n\n"
-                await asyncio.sleep(0.01)  # 10ms 延迟
+                await asyncio.sleep(chunk_delay)  # 延迟
             elif chunk_type == "thinking_end":
                 yield f"data: {json.dumps({'type': SSEEventType.REASONING_END})}\n\n"
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(chunk_delay)
             elif chunk_type == "answer_start":
                 yield f"data: {json.dumps({'type': SSEEventType.ANSWER_START})}\n\n"
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(chunk_delay)
             elif chunk_type == "answer":
                 yield f"data: {json.dumps({'type': SSEEventType.CHUNK, 'content': content})}\n\n"
-                await asyncio.sleep(0.01)  # 10ms 延迟确保每个chunk分开发送
+                await asyncio.sleep(chunk_delay)  # 延迟确保每个chunk分开发送
             elif chunk_type == "error":
                 # 错误处理：展示错误信息并提供友好提示
                 yield f"data: {json.dumps({'type': SSEEventType.REASONING_CHUNK, 'content': f'处理出错: {content}'})}\n\n"

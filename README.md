@@ -9,6 +9,7 @@
 - **自定义 ReAct Agent 架构** - 无第三方 AI 框架依赖
 - **深度思考展示** - 可折叠的思考过程框，实时展示 AI 推理过程
 - **SSE 流式响应** - Token 级别实时输出，用户体验大幅提升
+- **MiniMax M2.1 支持** - Anthropic 兼容 API，强大的推理能力
 - **多协议 LLM 支持** - OpenAI、Claude、Gemini、Ollama 等
 - **多会话管理** - 独立对话历史，会话隔离
 - **模块化架构** - Agent/Web/Frontend 三层分离
@@ -40,7 +41,7 @@
                               │
                               ▼ HTTP SSE
 ┌─────────────────────────────────────────────────────────────────┐
-│                       Web API (端口 8000)                        │
+│                       Web API (端口 48081)                       │
 │  FastAPI + Python                                                │
 │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌─────────────────┐  │
 │  │ /chat/    │ │ /session/ │ │ /model/   │ │ /city/          │  │
@@ -62,8 +63,8 @@
 │  │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │  ┌────────────────────────────────────────────────────────────┐ │
-│  │ LLM Client (支持多协议)                                     │ │
-│  │  OpenAI / Anthropic / Google / Ollama / OpenAI-Compatible  │ │
+│  │ LLM Client (多协议支持)                                     │ │
+│  │  MiniMax M2.1 / OpenAI / Anthropic / Google / Ollama       │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -182,20 +183,20 @@ vim config/llm_config.yaml
 
 ### 启动服务
 
-| 服务 | 命令 |
-|------|------|
-| Agent | `python run_agent.py` |
-| Web API | `python run_api.py` |
-| Frontend | `cd frontend && npm run dev` |
+| 服务 | 命令 | 端口 |
+|------|------|------|
+| Agent | `python run_agent.py` | 50051 |
+| Web API | `python run_api.py` | 48081 |
+| Frontend | `cd frontend && npm run dev` | 43001 |
 
 ### 访问应用
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| 前端 | http://localhost:3000 | Next.js 16 主应用 |
-| Swagger API 文档 | http://localhost:8000/docs | Swagger UI (OpenAPI) |
-| RapiDoc API 文档 | http://localhost:8000/rapidoc | RapiDoc (美观 UI) |
-| ReDoc API 文档 | http://localhost:8000/redoc | ReDoc (文档风格) |
+| 前端 | http://localhost:43001 | Next.js 16 主应用 |
+| Swagger API 文档 | http://localhost:48081/docs | Swagger UI (OpenAPI) |
+| RapiDoc API 文档 | http://localhost:48081/rapidoc | RapiDoc (美观 UI) |
+| ReDoc API 文档 | http://localhost:48081/redoc | ReDoc (文档风格) |
 
 ---
 
@@ -472,10 +473,22 @@ config/
 
 ```yaml
 # 默认使用的模型ID
-default_model: gpt-4o-mini
+default_model: minimax-m2-1
 
 # 模型配置列表
 models:
+  minimax-m2-1:
+    name: "MiniMax M2.1"
+    provider: anthropic
+    model: "MiniMax-M2.1"
+    api_base: "https://api.minimax.chat/v1/chat/completions"
+    api_key: "sk-xxx"
+    api_version: "2024-05-01"
+    temperature: 0.7
+    max_tokens: 4096
+    timeout: 60
+    max_retries: 3
+
   gpt-4o-mini:
     name: "GPT-4o Mini"
     provider: openai
@@ -493,6 +506,7 @@ models:
     model: "claude-sonnet-4-20250514"
     api_base: "https://api.anthropic.com/v1"
     api_key: "sk-ant-xxx"
+    api_version: "2023-06-01"
     temperature: 0.7
     max_tokens: 2000
     timeout: 60
@@ -520,7 +534,7 @@ agent:
 # Web 服务配置
 web:
   host: "0.0.0.0"
-  port: 8000
+  port: 48081
   debug: true
 
 # gRPC 服务配置
@@ -587,7 +601,7 @@ pytest tests/ --html=report.html
 
 ### 测试要求
 
-- Web API 服务器运行在端口 8000
+- Web API 服务器运行在端口 48081
 - gRPC 服务器运行在端口 50051
 - Python 3.10+
 - pytest-asyncio
@@ -606,14 +620,57 @@ pytest tests/ --html=report.html
 
 ## 文档
 
-详细文档请参阅 `docs/` 目录：
+项目包含两套文档体系：
+
+### 设计文档 (docs/)
+
+详细的技术设计文档，包含产品需求、API 接口和数据库设计。
 
 | 文档 | 说明 |
 |------|------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构设计 |
-| [API.md](docs/API.md) | API 接口文档 |
-| [DEVELOP.md](docs/DEVELOP.md) | 开发指南 |
-| [DEPLOY.md](docs/DEPLOY.md) | 部署指南 |
+| [prd.md](docs/prd.md) | 产品需求文档 (PRD) |
+| [api.md](docs/api.md) | API 接口文档 |
+| [db.md](docs/db.md) | 数据库设计文档 |
+
+### 学习文档 (learn_docs/)
+
+面向开发者的学习资料，按顺序阅读可快速掌握系统核心机制。
+
+| 顺序 | 文档 | 重点内容 | 预计时间 |
+|------|------|----------|----------|
+| 1 | [01_系统架构.md](learn_docs/01_ARCHITECTURE.md) | 整体架构、技术选型、三层微服务结构 | 10 分钟 |
+| 2 | [02_ReAct代理.md](learn_docs/02_REACT_AGENT.md) | ReAct 推理循环、状态机、工具系统 | 15 分钟 |
+| 3 | [03_多模式对话.md](learn_docs/03_MULTI_MODE_CHAT.md) | Direct/ReAct/Plan 三种模式对比和实现 | 10 分钟 |
+| 4 | [04_接口文档.md](learn_docs/04_API.md) | HTTP API 接口定义 | 10 分钟 |
+| 5 | [05_开发指南.md](learn_docs/05_DEVELOP.md) | 开发环境配置、本地调试 | 10 分钟 |
+| 6 | [06_部署指南.md](learn_docs/06_DEPLOY.md) | 部署配置、生产环境 | 10 分钟 |
+| 7 | [07_API文档配置.md](learn_docs/07_RapiDoc_ReDoc.md) | API 文档配置、SSE 测试面板 | 5 分钟 |
+
+### 推荐阅读路径
+
+```
+新手入门
+    │
+    ├── 1. 阅读 01_系统架构
+    │      了解系统由哪些模块组成
+    │      理解三层架构（Frontend → Web → Agent）
+    │
+    ├── 2. 阅读 02_ReAct代理
+    │      理解 Agent 如何思考和执行
+    │      了解工具如何被调用
+    │
+    └── 3. 阅读 03_多模式对话
+           理解三种对话模式的区别
+           知道何时使用哪种模式
+                  │
+                  ▼
+            开始开发
+                  │
+                  ├── 需要 API 详情 → 04_接口文档
+                  ├── 本地调试 → 05_开发指南
+                  ├── 部署上线 → 06_部署指南
+                  └── 接口测试 → 07_API文档配置
+```
 
 ---
 
@@ -635,9 +692,8 @@ pytest tests/ --html=report.html
   - JSON 计划增加 `phase` 和 `goal` 字段
 
 - **文档重构**
-  - 文档目录从 `docs/` 重命名为 `learn_docs/`
-  - 添加数字前缀排序 (00-07)，规范阅读顺序
-  - 新增 [00_README.md](learn_docs/00_README.md) - 文档索引和阅读指南
+  - 新增 `docs/` 目录存放设计文档 (prd.md, api.md, db.md)
+  - `learn_docs/` 目录添加数字前缀排序 (01-07)，规范阅读顺序
   - 新增 [02_ReAct代理.md](learn_docs/02_REACT_AGENT.md) - ReAct Agent 核心机制详解
   - 新增 [03_多模式对话.md](learn_docs/03_MULTI_MODE_CHAT.md) - 三种对话模式详解
   - 更新配置说明为实际 YAML 格式

@@ -61,7 +61,7 @@ cd ..
   },
   "web": {
     "host": "0.0.0.0",
-    "port": 8000,
+    "port": 48081,
     "debug": true
   }
 }
@@ -70,7 +70,7 @@ cd ..
 创建 `frontend/.env.local`:
 
 ```bash
-NEXT_PUBLIC_API_BASE=http://localhost:8000
+NEXT_PUBLIC_API_BASE=http://localhost:48081
 ```
 
 ---
@@ -114,7 +114,7 @@ python run_api.py
 
 # 方式2: 使用 uvicorn 直接
 cd web/src
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 48081
 ```
 
 **终端2 - 启动前端（热更新）**
@@ -326,7 +326,7 @@ python -m pdb script.py
 
 **API 测试**
 
-使用 Swagger 文档: http://localhost:8000/docs
+使用 Swagger 文档: http://localhost:48081/docs
 
 ### 5.2 前端调试
 

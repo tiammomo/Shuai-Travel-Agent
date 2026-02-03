@@ -25,12 +25,12 @@ class TestEndToEndStreaming:
     @pytest.fixture
     def web_port(self) -> int:
         """Web API 服务器端口"""
-        return 8000
+        return 48081
 
     @pytest.fixture
     def web_url(self) -> str:
         """Web API URL"""
-        return "http://localhost:8000"
+        return "http://localhost:48081"
 
     @pytest.mark.asyncio
     async def test_grpc_health_check(self, grpc_port: int):
@@ -128,7 +128,7 @@ class TestStreamingPerformance:
 
     @pytest.fixture
     def web_url(self) -> str:
-        return "http://localhost:8000"
+        return "http://localhost:48081"
 
     @pytest.mark.asyncio
     async def test_first_token_latency(self, web_url: str):

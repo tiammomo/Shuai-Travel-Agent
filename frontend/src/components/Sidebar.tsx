@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { useAppContext } from '../context/AppContext';
 import { apiService } from '../services/api';
+import { logger } from '../utils/logger';
 import { SessionInfo } from '../types';
 
 const { Option } = Select;
@@ -122,7 +123,7 @@ const Sidebar: React.FC = () => {
       message.success(`已切换到 ${model?.name || modelId}`);
     } catch (error) {
       message.error('模型切换失败，请重试');
-      console.error('模型切换错误:', error);
+      logger.error('模型切换错误:', error);
     } finally {
       setSwitchingModel(false);
     }

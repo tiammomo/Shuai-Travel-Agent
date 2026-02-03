@@ -5,6 +5,7 @@ Pytest 配置文件和共享 fixtures
 import pytest
 import httpx
 import asyncio
+import pytest_asyncio
 
 
 @pytest.fixture(scope="session")
@@ -18,7 +19,7 @@ def event_loop():
 @pytest.fixture
 def api_url() -> str:
     """API 基础 URL"""
-    return "http://localhost:8000/api/chat/stream"
+    return "http://localhost:48081/api/chat/stream"
 
 
 @pytest.fixture
@@ -39,7 +40,7 @@ def sample_queries():
     ]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_client():
     """异步 HTTP 客户端"""
     async with httpx.AsyncClient(timeout=180.0) as client:

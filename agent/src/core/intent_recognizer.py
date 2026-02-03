@@ -151,40 +151,71 @@ class IntentRecognizer:
 
     async def _recognize_with_llm(self, query: str,
                                    context: Dict = None) -> IntentResult:
-        """使用 LLM 进行意图识别"""
+        """使用 LLM 进行意图识别 - 增强推理版本"""
 
         context_info = ""
         if context:
             context_info = f"\n上下文信息：{json.dumps(context, ensure_ascii=False, indent=2)}"
 
-        system_prompt = f"""你是智能旅游助手的任务分析专家。
+        # 增强的 system prompt，加入深度推理引导
+        system_prompt = f"""你是智能旅游助手的资深任务分析专家，擅长深入理解用户的旅游需求。
 
-用户输入：{query}{context_info}
+## 用户输入
+{query}{context_info}
 
-请分析用户意图，返回 JSON 格式：
+## 分析要求
+
+请进行以下多层次分析：
+
+### 第一层：字面意图分析
+- 用户明确表达的需求是什么？
+- 有哪些关键词直接表明意图？
+
+### 第二层：隐含意图挖掘
+- 用户可能真正想要什么？（即使没有直接说出）
+- 是否有未明确说明但可推断的需求？
+
+### 第三层：实体提取
+- 目的地：明确的城市名或"未知"
+- 时间：天数、季节或具体日期
+- 预算：金额范围或"灵活"
+- 同行：人数、人员关系（家庭/情侣/朋友）
+- 偏好：主题标签（自然/文化/美食/休闲等）
+
+### 第四层：情感与紧迫度
+- 情感状态：期待/犹豫/着急/随性
+- 优先级：高（需要详细）/中（标准）/低（随便看看）
+
+## 输出要求
+
+请以JSON格式返回分析结果：
+
 {{
-    "intent": "意图类型",
-    "sub_intent": "子意图（可选）",
+    "analysis_process": "简要说明你的分析推理过程，展示如何得出结论",
+    "intent": "意图类型（见下方列表）",
+    "sub_intent": "子意图或具体任务类型",
+    "intent_reasoning": "为什么判断是这个意图，证据是什么",
     "entities": {{
         "cities": ["提取的城市名"],
-        "budget": "预算（如：2000元、5000左右）",
+        "budget": "预算描述（如：2000-3000元、充足、灵活）",
         "days": "天数（如：3天、一周）",
-        "season": "季节/时间（如：1月、春季、暑假）",
-        "people": "人数（如：2人、一家三口）",
-        "preferences": ["偏好标签，如：自然风光、美食、历史]"]
+        "season": "出行时间描述（如：春节、春季、暑假）",
+        "people": "同行人员（如：2人、一家三口、情侣）",
+        "preferences": ["偏好标签，如：自然风光、历史文化、美食探索]"]
     }},
-    "sentiment": "用户情感（neutral/excited/urgent/hesitant/curious/disappointed/satisfied）",
-    "confidence": 0.0-1.0,
+    "sentiment": "用户情感（neutral/excited/urgent/hesitant/curious/satisfied）",
+    "confidence": 0.0-1.0（根据证据充分程度）",
     "priority": "优先级（high/normal/low）",
-    "missing_info": ["缺少的关键信息列表"]
+    "missing_info": ["缺少但可能有用的信息列表"],
+    "suggested_approach": "建议如何处理这个请求"
 }}
 
-意图类型说明：
-- travel_planning: 综合旅行规划
-- city_recommendation: 城市推荐
-- attraction_query: 景点查询
-- route_planning: 路线规划
-- itinerary_query: 行程安排
+## 意图类型
+- travel_planning: 综合旅行规划（需要多步骤：查城市→查景点→规划路线）
+- city_recommendation: 城市推荐（需要了解兴趣/预算/时间）
+- attraction_query: 景点查询（需要明确城市）
+- route_planning: 路线规划（需要城市+天数）
+- itinerary_query: 行程安排（需要具体天数）
 - budget_query: 预算咨询
 - food_recommendation: 美食推荐
 - accommodation: 住宿咨询
@@ -198,7 +229,13 @@ class IntentRecognizer:
 - general_chat: 一般对话
 - greeting: 问候
 
-只输出 JSON，不要其他内容。"""
+## 重要原则
+1. 当信息不足以完成旅行规划时，明确指出缺失什么
+2. 对于"北京三日游"这类请求，虽然天数明确，但城市也明确，应判断为 travel_planning
+3. 优先使用 travel_planning 处理需要多步骤协作的复杂请求
+4. 置信度反映你分析的确定程度
+
+只输出JSON，不要其他内容。"""
 
         try:
             result = self.llm_client.chat(
@@ -374,31 +411,37 @@ class IntentRecognizer:
         return None
 
     def _parse_llm_result(self, data: Dict, original_query: str) -> IntentResult:
-        """解析 LLM 返回的结果"""
-        try:
-            intent_str = data.get("intent", "general_chat")
-            intent = IntentType(intent_str) if intent_str in [e.value for e in IntentType] else IntentType.GENERAL_CHAT
+        """解析 LLM 返回的结果 - 增强版"""
 
-            sentiment_str = data.get("sentiment", "neutral")
-            sentiment = SentimentType(sentiment_str) if sentiment_str in [e.value for e in SentimentType] else SentimentType.NEUTRAL
+        # 提取基础字段
+        intent_str = data.get("intent", "general_chat")
+        intent = IntentType(intent_str) if intent_str in [e.value for e in IntentType] else IntentType.GENERAL_CHAT
 
-            return IntentResult(
-                intent=intent,
-                sub_intent=data.get("sub_intent"),
-                entities=data.get("entities", {}),
-                sentiment=sentiment,
-                confidence=data.get("confidence", 0.7),
-                priority=data.get("priority", "normal"),
-                missing_info=data.get("missing_info", []),
-                original_query=original_query
-            )
-        except Exception as e:
-            logger.error(f"解析 LLM 结果失败: {e}")
-            return IntentResult(
-                intent=IntentType.GENERAL_CHAT,
-                confidence=0.5,
-                original_query=original_query
-            )
+        sentiment_str = data.get("sentiment", "neutral")
+        sentiment = SentimentType(sentiment_str) if sentiment_str in [e.value for e in SentimentType] else SentimentType.NEUTRAL
+
+        # 提取增强字段（用于后续分析）
+        intent_reasoning = data.get("intent_reasoning", "")
+        suggested_approach = data.get("suggested_approach", "")
+
+        result = IntentResult(
+            intent=intent,
+            sub_intent=data.get("sub_intent"),
+            entities=data.get("entities", {}),
+            sentiment=sentiment,
+            confidence=data.get("confidence", 0.7),
+            priority=data.get("priority", "normal"),
+            missing_info=data.get("missing_info", []),
+            original_query=original_query
+        )
+
+        # 记录额外的分析信息到日志（便于调试）
+        if intent_reasoning:
+            logger.info(f"[IntentAnalysis] 意图推理：{intent_reasoning}")
+        if suggested_approach:
+            logger.info(f"[IntentAnalysis] 建议方式：{suggested_approach}")
+
+        return result
 
 
 # 全局意图识别器实例

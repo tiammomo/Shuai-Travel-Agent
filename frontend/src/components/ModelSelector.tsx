@@ -2,6 +2,7 @@ import React from 'react';
 import { Select, Spin, message } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
 import { useAppContext } from '../context/AppContext';
+import { logger } from '../utils/logger';
 
 const { Option } = Select;
 
@@ -23,7 +24,7 @@ const ModelSelector: React.FC = () => {
       message.success(`已切换到 ${model?.name || value}`);
     } catch (error) {
       message.error('模型切换失败，请重试');
-      console.error('模型切换错误:', error);
+      logger.error('模型切换错误:', error);
     } finally {
       setSwitching(false);
     }

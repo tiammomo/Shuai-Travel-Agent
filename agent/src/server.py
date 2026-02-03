@@ -48,6 +48,7 @@ from datetime import datetime
 from proto import agent_pb2, agent_pb2_grpc
 
 from core.travel_agent import ReActTravelAgent, ChatMode
+from config.config_manager import ConfigManager
 
 # 配置日志，使用 UTF-8 编码以支持中文
 import io
@@ -309,6 +310,11 @@ class AgentServicer:
         logger.info(f"[Stream-{request_id}] 开始处理流式请求: {request.user_input[:50]}...")
 
         try:
+            # 加载配置
+            config = ConfigManager("config/llm_config.yaml")
+            chat_config = config.config.get('chat', {})
+            chunk_delay = chat_config.get('chunk_delay', 0.02)
+
             user_input = request.user_input
             mode = request.mode if hasattr(request, 'mode') and request.mode else "react"
             logger.info(f"[Stream-{request_id}] 使用模式: {mode}")
@@ -392,7 +398,7 @@ class AgentServicer:
                         answer_started = True
                     chunk_count += 1
                     yield agent_pb2.StreamChunk(chunk_type="answer", content=chunk, is_last=False)
-                    time_module.sleep(0.02)
+                    time_module.sleep(chunk_delay)
                 except queue.Empty:
                     pass
 

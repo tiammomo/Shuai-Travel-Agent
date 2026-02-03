@@ -9,7 +9,7 @@
 ### 基础URL
 
 ```
-开发环境: http://localhost:8000
+开发环境: http://localhost:48081
 生产环境: https://api.your-domain.com
 ```
 
@@ -150,7 +150,7 @@ data: {"type": "done"}
 **curl 示例:**
 
 ```bash
-curl -X POST http://localhost:8000/api/chat/stream \
+curl -X POST http://localhost:48081/api/chat/stream \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
   -d '{"message": "推荐适合春天旅游的城市"}'
@@ -183,7 +183,7 @@ curl -X POST http://localhost:8000/api/chat/stream \
 **curl 示例:**
 
 ```bash
-curl -X POST http://localhost:8000/api/session/new \
+curl -X POST http://localhost:48081/api/session/new \
   -H "Content-Type: application/json" \
   -d '{"name": "我的旅行计划"}'
 ```
@@ -223,10 +223,10 @@ curl -X POST http://localhost:8000/api/session/new \
 
 ```bash
 # 获取非空会话
-curl http://localhost:8000/api/sessions
+curl http://localhost:48081/api/sessions
 
 # 获取所有会话（包括空会话）
-curl "http://localhost:8000/api/sessions?include_empty=true"
+curl "http://localhost:48081/api/sessions?include_empty=true"
 ```
 
 ---
@@ -308,7 +308,7 @@ curl "http://localhost:8000/api/sessions?include_empty=true"
 **curl 示例:**
 
 ```bash
-curl -X PUT http://localhost:8000/api/session/550e8400-e29b-41d4-a716-446655440000/name \
+curl -X PUT http://localhost:48081/api/session/550e8400-e29b-41d4-a716-446655440000/name \
   -H "Content-Type: application/json" \
   -d '{"name": "杭州旅游"}'
 ```
@@ -336,7 +336,7 @@ curl -X PUT http://localhost:8000/api/session/550e8400-e29b-41d4-a716-4466554400
 **curl 示例:**
 
 ```bash
-curl -X DELETE http://localhost:8000/api/session/550e8400-e29b-41d4-a716-446655440000
+curl -X DELETE http://localhost:48081/api/session/550e8400-e29b-41d4-a716-446655440000
 ```
 
 ---
@@ -513,13 +513,13 @@ curl -X DELETE http://localhost:8000/api/session/550e8400-e29b-41d4-a716-4466554
 
 ```bash
 # 获取所有城市
-curl http://localhost:8000/api/cities
+curl http://localhost:48081/api/cities
 
 # 筛选华东地区
-curl "http://localhost:8000/api/cities?region=华东"
+curl "http://localhost:48081/api/cities?region=华东"
 
 # 筛选有"美食"标签的城市
-curl "http://localhost:8000/api/cities?tags=美食"
+curl "http://localhost:48081/api/cities?tags=美食"
 ```
 
 ---
@@ -638,7 +638,7 @@ async def chat_example():
     async with httpx.AsyncClient() as client:
         # 1. 创建会话
         session = await client.post(
-            "http://localhost:8000/api/session/new",
+            "http://localhost:48081/api/session/new",
             json={"name": "旅游咨询"}
         )
         session_id = session.json()["session_id"]
@@ -647,7 +647,7 @@ async def chat_example():
         # 2. 发送消息
         async with client.stream(
             "POST",
-            "http://localhost:8000/api/chat/stream",
+            "http://localhost:48081/api/chat/stream",
             json={
                 "message": "推荐适合春天旅游的城市",
                 "session_id": session_id
@@ -668,7 +668,7 @@ asyncio.run(chat_example())
 ```javascript
 async function chatExample() {
     // 1. 创建会话
-    const sessionRes = await fetch('http://localhost:8000/api/session/new', {
+    const sessionRes = await fetch('http://localhost:48081/api/session/new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: '旅游咨询' })
@@ -676,7 +676,7 @@ async function chatExample() {
     const { session_id } = await sessionRes.json();
 
     // 2. 发送消息
-    const response = await fetch('http://localhost:8000/api/chat/stream', {
+    const response = await fetch('http://localhost:48081/api/chat/stream', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

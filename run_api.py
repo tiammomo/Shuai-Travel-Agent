@@ -117,7 +117,7 @@ if __name__ == "__main__":
         "-m", "uvicorn",          # 以模块方式运行 uvicorn
         "src.main:app",           # FastAPI 应用模块
         "--host", "0.0.0.0",      # 绑定地址
-        "--port", "8000",         # 监听端口
+        "--port", "48081",        # 监听端口
         "--log-config", "src/logging_uvicorn.json"  # 日志配置
     ]
 
@@ -127,8 +127,8 @@ if __name__ == "__main__":
 
     print("[*] 正在启动 Web API 服务器...")
     print(f"    工作目录: {web_path}")
-    print(f"    访问地址: http://localhost:8000")
-    print(f"    API文档:  http://localhost:8000/docs")
+    print(f"    访问地址: http://localhost:48081")
+    print(f"    API文档:  http://localhost:48081/docs")
     print()
 
     # ==========================================================================

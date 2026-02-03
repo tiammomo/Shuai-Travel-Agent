@@ -5,6 +5,7 @@ import { Input, Button, Space, Card } from 'antd';
 import { SendOutlined, StopOutlined, RobotOutlined } from '@ant-design/icons';
 import { useAppContext } from '@/context/AppContext';
 import { apiService } from '@/services/api';
+import { logger } from '@/utils/logger';
 import MessageList from './MessageList';
 import ChatModeSelector from './ChatModeSelector';
 
@@ -115,7 +116,7 @@ const ChatArea: React.FC = () => {
         sessionId = data.session_id;
         setCurrentSessionId(sessionId);
       } catch (error) {
-        console.error('创建会话失败:', error);
+        logger.error('创建会话失败:', error);
         return;
       }
     }
@@ -144,7 +145,7 @@ const ChatArea: React.FC = () => {
         const sessionName = userMessageContent.slice(0, 15) + (userMessageContent.length > 15 ? '...' : '');
         await apiService.updateSessionName(sessionId, sessionName);
       } catch (error) {
-        console.error('设置会话名称失败:', error);
+        logger.error('设置会话名称失败:', error);
       }
     }
 
@@ -160,36 +161,36 @@ const ChatArea: React.FC = () => {
       },
       {
         onChunk: (content) => {
-          console.log('[ChatArea] onChunk called, content length:', content.length);
+          logger.debug('[ChatArea] onChunk called, content length:', content.length);
           fullResponse += content;
           setStreamingMessage((prev) => {
             const next = prev + content;
-            console.log('[ChatArea] streamingMessage updated, length:', next.length);
+            logger.debug('[ChatArea] streamingMessage updated, length:', next.length);
             return next;
           });
         },
         onReasoning: (content) => {
-          console.log('[ChatArea] onReasoning called, content length:', content.length);
+          logger.debug('[ChatArea] onReasoning called, content length:', content.length);
           fullReasoning += content;
           setStreamingReasoning((prev) => {
             const next = prev + content;
-            console.log('[ChatArea] streamingReasoning updated, length:', next.length);
+            logger.debug('[ChatArea] streamingReasoning updated, length:', next.length);
             return next;
           });
         },
         onReasoningStart: () => {
-          console.log('[ChatArea] onReasoningStart called, setting isThinking=true');
+          logger.debug('[ChatArea] onReasoningStart called, setting isThinking=true');
           setIsThinking(true);
           if (!thinkingStartTime) {
             setThinkingStartTime(Date.now());
           }
-          console.log('[ChatArea] isThinking should now be true');
+          logger.debug('[ChatArea] isThinking should now be true');
         },
         onReasoningTimestamp: (timestamp) => {
           reasoningTimestamp = timestamp;
         },
         onReasoningEnd: () => {
-          console.log('[ChatArea] onReasoningEnd called, setting isThinking=false');
+          logger.debug('[ChatArea] onReasoningEnd called, setting isThinking=false');
           setIsThinking(false);
         },
         onAnswerStart: () => {},
